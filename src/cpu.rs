@@ -1,7 +1,6 @@
 use crate::bus::Bus;
 use crate::register::Registers;
 
-
 pub struct Cpu {
     pub bus: Bus,
     pub registers: Registers,
@@ -22,7 +21,7 @@ impl Cpu {
         }
     }
 
-    fn _cycles(&self) {}
+    fn _cycles(&self, count: usize) {}
 
     fn load(&mut self, inst1: u8, inst2: u8) -> bool{
         let val: u8 = match (inst1, inst2) {
@@ -60,6 +59,31 @@ impl Cpu {
         true
     }
 
+    pub fn alu16(&mut self, inst1: u8, inst2: u8) -> bool{
+        let val = match (inst1, inst2) {
+            (0, 9) => self.registers.get_bc(),
+            (1, 9) => self.registers.get_de(),
+            (2, 9) => self.registers.get_hl(),
+            (3, 9) => self.registers.get_sp(),
+            _ => 0
+        };
+        match (inst1, inst2) {
+            (0, 3) => self.registers.inc16_bc(),
+            (1, 3) => self.registers.inc16_de(),
+            (2, 3) => self.registers.inc16_hl(),
+            (3, 3) => self.registers.inc16_sp(),
+            (0, 0xb) => self.registers.dec16_bc(),
+            (1, 0xb) => self.registers.dec16_de(),
+            (2, 0xb) => self.registers.dec16_hl(),
+            (3, 0xb) => self.registers.dec16_sp(),
+            (0..=3, 9) => self.registers.add16(val),
+            _ => ()
+        }
+        match (inst1, inst2) {
+            (0..=3, 3 | 9 | 0xb) => true,
+            _ => false
+        }
+    }
     pub fn alu(&mut self, inst1: u8, inst2: u8) -> bool{
         let old_carry_flag = self.registers.get_flag_c();
         let val = match (inst1, inst2) {

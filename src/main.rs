@@ -9,5 +9,4 @@ fn main() {
     let mut emu = Emulator::new();
 
     emu.run();
-
 }

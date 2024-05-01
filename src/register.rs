@@ -145,6 +145,27 @@ impl Registers {
         }
         (val, c | c2, h | h2)
     }
+    fn arithmetic_flags16(&self, value: u16, func: fn(u16, u16) -> (u16, bool)) -> (u16, bool, bool){
+        let (mut val, mut c, mut h) = (0, false, false);
+        (val, c) = func(self.get_hl(), value);
+        (_, h) = func(self.get_hl() << 8, value << 8);
+        (val, c, h)
+    }
+    pub fn add16(&mut self, value: u16) {
+        let (val, c, h) = self.arithmetic_flags16(value, u16::overflowing_add);
+        self.set_hl(val);
+        self.set_flag_n(false);
+        self.set_flag_c(c);
+        self.set_flag_h(h);
+    }
+    pub fn inc16_bc(&mut self) { self.set_bc(self.get_bc() + 1); }
+    pub fn dec16_bc(&mut self) { self.set_bc(self.get_bc() - 1); }
+    pub fn inc16_de(&mut self) { self.set_de(self.get_de() + 1); }
+    pub fn dec16_de(&mut self) { self.set_de(self.get_de() - 1); }
+    pub fn inc16_hl(&mut self) { self.set_hl(self.get_hl() + 1); }
+    pub fn dec16_hl(&mut self) { self.set_hl(self.get_hl() - 1); }
+    pub fn inc16_sp(&mut self) { self.set_sp(self.get_sp() + 1); }
+    pub fn dec16_sp(&mut self) { self.set_sp(self.get_sp() - 1); }
     pub fn add(&mut self, value: u8) {
         let (val, c, h) = self.arithmetic_flags(value, u8::overflowing_add, false);
         self.a = val;

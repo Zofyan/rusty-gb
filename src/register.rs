@@ -1,5 +1,6 @@
 use bitfield::{Bit, BitMut};
 
+
 pub struct Registers {
     a: u8,
     b: u8,
@@ -24,7 +25,7 @@ impl Registers {
             f: 0,
             h: 0,
             l: 0,
-            sp: 0,
+            sp: crate::bus::HRAM_END,
             pc: 0,
         }
     }

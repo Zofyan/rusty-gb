@@ -10,7 +10,7 @@ impl Emulator {
         Emulator{cpu}
     }
 
-    pub fn run(&self) {
+    pub fn run(&mut self) {
         loop {
             self.cpu.step();
         }

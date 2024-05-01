@@ -135,6 +135,30 @@ impl Registers {
     pub fn set_l(&mut self, value: u8) {
         self.l = value
     }
+    pub fn add(&mut self, value: u8) {
+        self.a = self.a.wrapping_add(value)
+    }
+    pub fn addc(&mut self, value: u8) {
+        self.a = self.a.wrapping_add(value).wrapping_add(self.get_flag_c() as u8)
+    }
+    pub fn sub(&mut self, value: u8) {
+        self.a = self.a.wrapping_sub(value)
+    }
+    pub fn subc(&mut self, value: u8) {
+        self.a = self.a.wrapping_sub(value).wrapping_sub(self.get_flag_c() as u8)
+    }
+    pub fn and(&mut self, value: u8) {
+        self.a &= value
+    }
+    pub fn xor(&mut self, value: u8) {
+        self.a ^= value
+    }
+    pub fn or(&mut self, value: u8) {
+        self.a |= value
+    }
+    pub fn cmp(&mut self, value: u8) {
+
+    }
 }
 
 #[cfg(test)]

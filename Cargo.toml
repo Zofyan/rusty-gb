@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 bitfield = "0.15.0"
+rand = "0.9.0-alpha.1"
 
 [profile.dev]
 overflow-checks = true

@@ -49,7 +49,7 @@ impl Registers {
     pub fn set_flag_n(&mut self, value: bool) {
         self.f.set_bit(6, value)
     }
-    pub fn set_flag_z(&mut self, value: bool)  {
+    pub fn set_flag_z(&mut self, value: bool) {
         self.f.set_bit(7, value)
     }
     pub fn get_af(&self) -> u16 {
@@ -135,29 +135,75 @@ impl Registers {
     pub fn set_l(&mut self, value: u8) {
         self.l = value
     }
+    fn arithmetic_flags(&self, value: u8, func: fn(u8, u8) -> (u8, bool), carry: bool) -> (u8, bool, bool){
+        let (mut val, mut c, mut h, mut c2, mut h2) = (0, false, false, false, false);
+        (val, c) = func(self.a, value);
+        (_, h) = func(self.a << 4, value << 4);
+        if carry{
+            (val, c2) = func(val, self.get_flag_c() as u8);
+            (_, h2) = func(val << 4, (self.get_flag_c() as u8) << 4);
+        }
+        (val, c | c2, h | h2)
+    }
     pub fn add(&mut self, value: u8) {
-        self.a = self.a.wrapping_add(value)
+        let (val, c, h) = self.arithmetic_flags(value, u8::overflowing_add, false);
+        self.a = val;
+        self.set_flag_n(false);
+        self.set_flag_c(c);
+        self.set_flag_h(h);
+        self.set_flag_z(self.a == 0)
     }
     pub fn addc(&mut self, value: u8) {
-        self.a = self.a.wrapping_add(value).wrapping_add(self.get_flag_c() as u8)
+        let (val, c, h) = self.arithmetic_flags(value, u8::overflowing_add, true);
+        self.a = val;
+        self.set_flag_n(false);
+        self.set_flag_c(c);
+        self.set_flag_h(h);
+        self.set_flag_z(self.a == 0)
     }
     pub fn sub(&mut self, value: u8) {
-        self.a = self.a.wrapping_sub(value)
+        let (val, c, h) = self.arithmetic_flags(value, u8::overflowing_sub, false);
+        self.a = val;
+        self.set_flag_n(true);
+        self.set_flag_c(c);
+        self.set_flag_h(h);
+        self.set_flag_z(self.a == 0)
     }
     pub fn subc(&mut self, value: u8) {
-        self.a = self.a.wrapping_sub(value).wrapping_sub(self.get_flag_c() as u8)
+        let (val, c, h) = self.arithmetic_flags(value, u8::overflowing_sub, true);
+        self.a = val;
+        self.set_flag_n(true);
+        self.set_flag_c(c);
+        self.set_flag_h(h);
+        self.set_flag_z(self.a == 0)
     }
     pub fn and(&mut self, value: u8) {
-        self.a &= value
+        self.a &= value;
+        self.set_flag_n(false);
+        self.set_flag_h(true);
+        self.set_flag_c(false);
+        self.set_flag_z(self.a == 0)
     }
     pub fn xor(&mut self, value: u8) {
-        self.a ^= value
+        self.a ^= value;
+        self.set_flag_n(false);
+        self.set_flag_h(false);
+        self.set_flag_c(false);
+        self.set_flag_z(self.a == 0)
     }
     pub fn or(&mut self, value: u8) {
-        self.a |= value
+        self.a |= value;
+        self.set_flag_n(false);
+        self.set_flag_h(false);
+        self.set_flag_c(false);
+        self.set_flag_z(self.a == 0)
     }
     pub fn cmp(&mut self, value: u8) {
-
+        let (val, c, h) = self.arithmetic_flags(value, u8::overflowing_sub, false);
+        self.set_flag_n(true);
+        self.set_flag_c(c);
+        self.set_flag_h(h);
+        self.set_flag_z(val == 0);
     }
 }
 

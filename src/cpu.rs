@@ -61,6 +61,7 @@ impl Cpu {
     }
 
     pub fn alu(&mut self, inst1: u8, inst2: u8) -> bool{
+        let old_carry_flag = self.registers.get_flag_c();
         let val = match (inst1, inst2) {
             (8..=0xb, 0 | 0x8) => self.registers.get_b(),
             (8..=0xb, 1 | 0x9) => self.registers.get_c(),
@@ -107,6 +108,9 @@ impl Cpu {
             (2, 0xc | 0xd) => self.registers.set_l(val),
             (3, 0xc | 0xd) => self.registers.set_a(val),
             _ => return false
+        }
+        if inst1 <= 3 {
+            self.registers.set_flag_c(old_carry_flag);
         }
         true
     }
@@ -159,16 +163,19 @@ mod tests {
         let mut cpu = Cpu::new();
         let mut rng = rand::thread_rng();
 
-        let x1 = rng.gen_range(0..255);
-        let x2 = rng.gen_range(0..255);
-        let x3 = rng.gen_range(0..255);
-        let x4 = rng.gen_range(0..255);
-        let x5 = rng.gen_range(0..0xFFF);
+        let s1 = rng.gen_range(0..=7);
+        let s2 = rng.gen_range(8..=15);
+        let x1 = rng.gen_range(0..=255);
+        let x2 = rng.gen_range(0..=255);
+        let x3 = rng.gen_range(0..=255);
+        let x4 = rng.gen_range(0..=127);
+        let x5 = rng.gen_range(128..=255);
+        let y1 = rng.gen_range(0..=0xFFF);
 
         cpu.registers.set_a(x1);
         cpu.registers.set_d(x2);
-        cpu.registers.set_hl(x5);
-        cpu.bus.set(x5, x3);
+        cpu.registers.set_hl(y1);
+        cpu.bus.set(y1, x3);
 
         cpu.alu(0x8, 0x2);
         assert_eq!(cpu.registers.get_a(), x1.wrapping_add(x2));
@@ -228,5 +235,24 @@ mod tests {
         cpu.registers.set_a(x1);
         cpu.alu(0xa, 0xe);
         assert_eq!(cpu.registers.get_a(), x1 ^ x3);
+
+        cpu.registers.set_a(x4);
+        cpu.registers.set_b(x5);
+        cpu.alu(0x9, 0);
+        assert_eq!(cpu.registers.get_flag_c(), true);
+        assert_eq!(cpu.registers.get_flag_n(), true);
+        assert_eq!(cpu.registers.get_flag_z(), x4 == x5);
+
+        cpu.registers.set_a(x4);
+        cpu.registers.set_b(x4);
+        cpu.alu(0xb, 0x8);
+        assert_eq!(cpu.registers.get_flag_n(), true);
+        assert_eq!(cpu.registers.get_flag_z(), true);
+
+        cpu.registers.set_a(s2);
+        cpu.registers.set_b(s2);
+        cpu.alu(0x8, 0);
+        assert_eq!(cpu.registers.get_flag_n(), false);
+        assert_eq!(cpu.registers.get_flag_h(), true);
     }
 }

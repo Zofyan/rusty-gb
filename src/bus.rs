@@ -1,4 +1,7 @@
 #![allow(dead_code)]
+
+use bitfield::{Bit, BitMut};
+
 pub const ROM_0: u16 = 0x0000;
 pub const ROM_0_END: u16 = 0x3FFF;
 pub const ROM_N: u16 = 0x4000;
@@ -92,9 +95,6 @@ impl Bus {
         v2 << 8 | v1
     }
     pub fn set(&mut self, address: u16, value: u8) {
-        if address == 0xFF01 || address==0xFF02{
-            panic!("test")
-        }
         let target = self.get_target_mut(address);
         *target = value
     }
@@ -103,6 +103,76 @@ impl Bus {
         *target = value as u8;
         let target = self.get_target_mut(address + 1);
         *target = (value >> 8) as u8
+    }
+    
+    pub fn rl(&mut self, _: bool, carry_value: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        value.set_bit(0, carry_value);
+        value = value.rotate_left(1);
+        self.set(address, value);
+        (value == 0, false, false, value.bit(0))
+    }
+    pub fn rlc(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        value = value.rotate_left(1);
+        self.set(address, value);
+        (value == 0, false, false, value.bit(0))
+    }
+    pub fn rr(&mut self, _: bool, carry_value: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        value.set_bit(7, carry_value);
+        value = value.rotate_right(1);
+        self.set(address, value);
+        (value == 0, false, false, value.bit(7))
+    }
+    pub fn rrc(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        value = value.rotate_right(1);
+        self.set(address, value);
+        (value == 0, false, false, value.bit(7))
+    }
+    pub fn sla(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        let c= value.bit(7);
+        value <<= 1;
+        self.set(address, value);
+        (value == 0, false, false, c)
+    }
+    pub fn srl(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        let c= value.bit(0);
+        value >>= 1;
+        self.set(address, value);
+        (value == 0, false, false, c)
+    }
+    pub fn sra(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        let c= value.bit(0);
+        value = (value >> 1) | value;
+        self.set(address, value);
+        (value == 0, false, false, c)
+    }
+    pub fn swap(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        value = (value << 4) | (value >> 4);
+        self.set(address, value);
+        (value == 0, false, false, false)
+    }
+    pub fn bit(&mut self, _: bool, _: bool, bit: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        (!value.bit(bit), false, true, false)
+    }
+    pub fn reset(&mut self, _: bool, _: bool, bit: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        value.set_bit(bit, false);
+        self.set(address, value);
+        (false, false, false, false)
+    }
+    pub fn setb(&mut self, _: bool, _: bool, bit: usize, address: u16) -> (bool, bool, bool, bool) {
+        let mut value = self.get(address);
+        value.set_bit(bit, true);
+        self.set(address, value);
+        (false, false, false, false)
     }
 
     pub fn load_rom(&mut self, buffer: Vec<u8>) {

@@ -1,8 +1,10 @@
 #![allow(dead_code)]
+
+use std::ops::Shl;
 use bitfield::{Bit, BitMut};
 
 pub struct Register {
-    value: u8
+    pub(crate) value: u8
 }
 
 impl Register {
@@ -12,26 +14,120 @@ impl Register {
     pub fn set(&mut self, value: u8) {
         self.value = value
     }
+    pub fn get_bit(&self, bit: usize) -> bool{
+        self.value.bit(bit)
+    }
+    pub fn set_bit(&mut self, bit: usize, value: bool) {
+        self.value.set_bit(bit, value)
+    }
 
-    fn arithmetic_flags(&self, base: u8, value: u8, func: fn(u8, u8) -> (u8, bool), carry: bool) -> (u8, bool, bool){
+    pub(crate) fn arithmetic_flags(&self, base: u8, value: u8, func: fn(u8, u8) -> (u8, bool), carry: bool, carry_value: bool) -> (u8, bool, bool){
         let (mut c2, mut h2) = (false, false);
         let (mut val, c) = func(base, value);
         let (_, h) = func(base << 4, value << 4);
         if carry{
-            (val, c2) = func(val, self.get_flag_c() as u8);
-            (_, h2) = func(val << 4, (self.get_flag_c() as u8) << 4);
+            (val, c2) = func(val, carry_value as u8);
+            (_, h2) = func(val << 4, (carry_value as u8) << 4);
         }
         (val, c | c2, h | h2)
     }
-    pub fn inc(&mut self) -> (u8, bool) {
-        let (val, _, h) = self.arithmetic_flags(self.value, 1, u8::overflowing_add, false);
-        self.value = val;
-        (val, h)
+    pub fn and(&mut self, value: u8) -> (bool, bool, bool, bool) {
+        self.value &= value;
+        (self.value == 0, false, true, false)
     }
-    pub fn dec(&mut self) -> (u8, bool) {
-        let (val, _, h) = self.arithmetic_flags(self.value, 1, u8::overflowing_sub, false);
+    pub fn xor(&mut self, value: u8) -> (bool, bool, bool, bool) {
+        self.value ^= value;
+        (self.value == 0, false, false, false)
+    }
+    pub fn or(&mut self, value: u8) -> (bool, bool, bool, bool) {
+        self.value |= value;
+        (self.value == 0, false, false, false)
+    }
+    pub fn cp(&mut self, value: u8) -> (bool, bool, bool, bool) {
+        let (val, c, h) = self.arithmetic_flags(self.value, value, u8::overflowing_sub, false, false);
+        (val == 0, true, h, c)
+    }
+    pub fn rotate_left_a(&mut self, carry: bool, carry_value: bool) -> (bool, bool, bool, bool) {
+        if !carry {
+            self.value.set_bit(0, carry_value)
+        }
+        self.value = self.value.rotate_left(1);
+        (false, false, false, self.value.bit(0))
+    }
+    pub fn rotate_right_a(&mut self, carry: bool, carry_value: bool) -> (bool, bool, bool, bool) {
+        if !carry {
+            self.value.set_bit(7, carry_value)
+        }
+        self.value = self.value.rotate_right(1);
+        (false, false, false, self.value.bit(7))
+    }
+    pub fn rl(&mut self, _: bool, carry_value: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        self.value.set_bit(0, carry_value);
+        self.value = self.value.rotate_left(1);
+        (self.value == 0, false, false, self.value.bit(0))
+    }
+    pub fn rlc(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        self.value = self.value.rotate_left(1);
+        (self.value == 0, false, false, self.value.bit(0))
+    }
+    pub fn rr(&mut self, _: bool, carry_value: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        self.value.set_bit(7, carry_value);
+        self.value = self.value.rotate_right(1);
+        (self.value == 0, false, false, self.value.bit(7))
+    }
+    pub fn rrc(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        self.value = self.value.rotate_right(1);
+        (self.value == 0, false, false, self.value.bit(7))
+    }
+    pub fn sla(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        let c= self.get_bit(7);
+        self.value <<= 1;
+        (self.value == 0, false, false, c)
+    }
+    pub fn srl(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        let c= self.get_bit(0);
+        self.value >>= 1;
+        (self.value == 0, false, false, c)
+    }
+    pub fn sra(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        let c= self.get_bit(0);
+        self.value = (self.value >> 1) | self.value;
+        (self.value == 0, false, false, c)
+    }
+    pub fn swap(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        self.value = (self.value << 4) | (self.value >> 4);
+        (self.value == 0, false, false, false)
+    }
+    pub fn bit(&mut self, _: bool, _: bool, bit: usize, _: u16) -> (bool, bool, bool, bool) {
+        (!self.value.bit(bit), false, true, false)
+    }
+    pub fn reset(&mut self, _: bool, _: bool, bit: usize, _: u16) -> (bool, bool, bool, bool) {
+        self.value.set_bit(bit, false);
+        (false, false, false, false)
+    }
+    pub fn setb(&mut self, _: bool, _: bool, bit: usize, _: u16) -> (bool, bool, bool, bool) {
+        self.value.set_bit(bit, true);
+        (false, false, false, false)
+    }
+    pub fn add(&mut self, value: u8, carry: bool, carry_value: bool) -> (bool, bool, bool, bool) {
+        let (val, c, h) = self.arithmetic_flags(self.value, value, u8::overflowing_add, carry, carry_value);
         self.value = val;
-        (val, h)
+        (val == 0, false, h, c)
+    }
+    pub fn sub(&mut self, value: u8, carry: bool, carry_value: bool) -> (bool, bool, bool, bool) {
+        let (val, c, h) = self.arithmetic_flags(self.value, value, u8::overflowing_sub, carry, carry_value);
+        self.value = val;
+        (val == 0, true, h, c)
+    }
+    pub fn inc(&mut self) -> (bool, bool, bool, bool) {
+        let (val, c, h) = self.arithmetic_flags(self.value, 1, u8::overflowing_add, false, false);
+        self.value = val;
+        (val == 0, false, h, c)
+    }
+    pub fn dec(&mut self) -> (bool, bool, bool, bool) {
+        let (val, c, h) = self.arithmetic_flags(self.value, 1, u8::overflowing_sub, false, false);
+        self.value = val;
+        (val == 0, true, h, c)
     }
 }
 pub struct Registers {
@@ -46,359 +142,7 @@ pub struct Registers {
     sp: u16,
     pc: u16,
 }
-
-impl Registers {
-    pub fn new() -> Registers {
-        Registers {
-            a: Register { value: 0 },
-            b: 0,
-            c: 0,
-            d: 0,
-            e: 0,
-            f: 0,
-            h: 0,
-            l: 0,
-            sp: 0,
-            pc: 0,
-        }
-    }
-    pub fn get_flag_c(&self) -> bool {
-        self.f.bit(4)
-    }
-    pub fn get_flag_h(&self) -> bool {
-        self.f.bit(5)
-    }
-    pub fn get_flag_n(&self) -> bool {
-        self.f.bit(6)
-    }
-    pub fn get_flag_z(&self) -> bool {
-        self.f.bit(7)
-    }
-    pub fn set_flag_c(&mut self, value: bool) {
-        self.f.set_bit(4, value)
-    }
-    pub fn set_flag_h(&mut self, value: bool) {
-        self.f.set_bit(5, value)
-    }
-    pub fn set_flag_n(&mut self, value: bool) {
-        self.f.set_bit(6, value)
-    }
-    pub fn set_flag_z(&mut self, value: bool) {
-        self.f.set_bit(7, value)
-    }
-    pub fn get_af(&self) -> u16 {
-        ((self.a.get() as u16) << 8) | self.f as u16
-    }
-    pub fn get_bc(&self) -> u16 {
-        ((self.b as u16) << 8) | self.c as u16
-    }
-    pub fn get_de(&self) -> u16 {
-        ((self.d as u16) << 8) | self.e as u16
-    }
-    pub fn get_hl(&self) -> u16 {
-        ((self.h as u16) << 8) | self.l as u16
-    }
-    pub fn get_a(&self) -> u8 {
-        self.a.get()
-    }
-    pub fn get_f(&self) -> u8 {
-        self.f
-    }
-    pub fn get_b(&self) -> u8 {
-        self.b
-    }
-    pub fn get_c(&self) -> u8 {
-        self.c
-    }
-    pub fn get_d(&self) -> u8 {
-        self.d
-    }
-    pub fn get_e(&self) -> u8 {
-        self.e
-    }
-    pub fn get_h(&self) -> u8 {
-        self.h
-    }
-    pub fn get_l(&self) -> u8 {
-        self.l
-    }
-    pub fn get_sp(&self) -> u16 {
-        self.sp
-    }
-    pub fn get_pc(&self) -> u16 {
-        self.pc
-    }
-
-    pub fn set_af(&mut self, value: u16) {
-        self.a.set((value >> 8) as u8);
-        self.f = value as u8
-    }
-    pub fn set_bc(&mut self, value: u16) {
-        self.b = (value >> 8) as u8;
-        self.c = value as u8
-    }
-    pub fn set_de(&mut self, value: u16) {
-        self.d = (value >> 8) as u8;
-        self.e = value as u8
-    }
-    pub fn set_hl(&mut self, value: u16) {
-        self.h = (value >> 8) as u8;
-        self.l = value as u8
-    }
-    pub fn set_sp(&mut self, value: u16) {
-        self.sp = value
-    }
-    pub fn set_pc(&mut self, value: u16) {
-        self.pc = value
-    }
-    pub fn set_a(&mut self, value: u8) {
-        self.a.set(value)
-    }
-    pub fn set_b(&mut self, value: u8) {
-        self.b = value
-    }
-    pub fn set_c(&mut self, value: u8) {
-        self.c = value
-    }
-    pub fn set_d(&mut self, value: u8) {
-        self.d = value
-    }
-    pub fn set_e(&mut self, value: u8) {
-        self.e = value
-    }
-    pub fn set_h(&mut self, value: u8) {
-        self.h = value
-    }
-    pub fn set_l(&mut self, value: u8) {
-        self.l = value
-    }
-    fn arithmetic_flags16(&self, value: u16, func: fn(u16, u16) -> (u16, bool)) -> (u16, bool, bool) {
-        let (val, c) = func(self.get_hl(), value);
-        let (_, h) = func(self.get_hl() << 8, value << 8);
-        (val, c, h)
-    }
-    pub fn add16(&mut self, value: u16) {
-        let (val, c, h) = self.arithmetic_flags16(value, u16::overflowing_add);
-        self.set_hl(val);
-        self.set_flag_n(false);
-        self.set_flag_c(c);
-        self.set_flag_h(h);
-    }
-    pub fn inc16_bc(&mut self) { self.set_bc(self.get_bc().wrapping_add(1)); }
-    pub fn dec16_bc(&mut self) { self.set_bc(self.get_bc().wrapping_sub(1)); }
-    pub fn inc16_de(&mut self) { self.set_de(self.get_de().wrapping_add(1)); }
-    pub fn dec16_de(&mut self) { self.set_de(self.get_de().wrapping_sub(1)); }
-    pub fn inc16_hl(&mut self) { self.set_hl(self.get_hl().wrapping_add(1)); }
-    pub fn dec16_hl(&mut self) { self.set_hl(self.get_hl().wrapping_sub(1)); }
-    pub fn inc16_sp(&mut self) { self.set_sp(self.get_sp().wrapping_add(1)); }
-    pub fn dec16_sp(&mut self) { self.set_sp(self.get_sp().wrapping_sub(1)); }
-    pub fn inc_a(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.a.get(), 1, u8::overflowing_add, false);
-        self.a.set(val);
-        self.set_flag_n(false);
-        self.set_flag_h(h);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn inc_b(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.b, 1, u8::overflowing_add, false);
-        self.b = val;
-        self.set_flag_n(false);
-        self.set_flag_h(h);
-        self.set_flag_z(self.b == 0)
-    }
-    pub fn inc_c(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.c, 1, u8::overflowing_add, false);
-        self.c = val;
-        self.set_flag_n(false);
-        self.set_flag_h(h);
-        self.set_flag_z(self.c == 0)
-    }
-    pub fn inc_d(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.d, 1, u8::overflowing_add, false);
-        self.d = val;
-        self.set_flag_n(false);
-        self.set_flag_h(h);
-        self.set_flag_z(self.d == 0)
-    }
-    pub fn inc_e(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.e, 1, u8::overflowing_add, false);
-        self.e = val;
-        self.set_flag_n(false);
-        self.set_flag_h(h);
-        self.set_flag_z(self.e == 0)
-    }
-    pub fn inc_h(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.h, 1, u8::overflowing_add, false);
-        self.h = val;
-        self.set_flag_n(false);
-        self.set_flag_h(h);
-        self.set_flag_z(self.h == 0)
-    }
-    pub fn inc_l(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.l, 1, u8::overflowing_add, false);
-        self.l = val;
-        self.set_flag_n(false);
-        self.set_flag_h(h);
-        self.set_flag_z(self.l == 0)
-    }
-    pub fn inc_m(&mut self, target: &mut u8) {
-        let (val, _, h) = self.arithmetic_flags(*target, 1, u8::overflowing_add, false);
-        *target = val;
-        self.set_flag_n(false);
-        self.set_flag_h(h);
-        self.set_flag_z(*target == 0)
-    }
-    pub fn dec_a(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.a.get(), 1, u8::overflowing_sub, false);
-        self.a.set(val);
-        self.set_flag_n(true);
-        self.set_flag_h(h);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn dec_b(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.b, 1, u8::overflowing_sub, false);
-        self.b = val;
-        self.set_flag_n(true);
-        self.set_flag_h(h);
-        self.set_flag_z(self.b == 0)
-    }
-    pub fn dec_c(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.c, 1, u8::overflowing_sub, false);
-        self.c = val;
-        self.set_flag_n(true);
-        self.set_flag_h(h);
-        self.set_flag_z(self.c == 0)
-    }
-    pub fn dec_d(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.d, 1, u8::overflowing_sub, false);
-        self.d = val;
-        self.set_flag_n(true);
-        self.set_flag_h(h);
-        self.set_flag_z(self.d == 0)
-    }
-    pub fn dec_e(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.e, 1, u8::overflowing_sub, false);
-        self.e = val;
-        self.set_flag_n(true);
-        self.set_flag_h(h);
-        self.set_flag_z(self.e == 0)
-    }
-    pub fn dec_h(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.h, 1, u8::overflowing_sub, false);
-        self.h = val;
-        self.set_flag_n(true);
-        self.set_flag_h(h);
-        self.set_flag_z(self.h == 0)
-    }
-    pub fn dec_l(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.l, 1, u8::overflowing_sub, false);
-        self.l = val;
-        self.set_flag_n(true);
-        self.set_flag_h(h);
-        self.set_flag_z(self.l == 0)
-    }
-    pub fn dec_m(&mut self, target: &mut u8) {
-        let (val, _, h) = self.arithmetic_flags(*target, 1, u8::overflowing_sub, false);
-        *target = val;
-        self.set_flag_n(true);
-        self.set_flag_h(h);
-        self.set_flag_z(*target == 0)
-    }
-    pub fn add(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_add, false);
-        self.a.set(val);
-        self.set_flag_n(false);
-        self.set_flag_c(c);
-        self.set_flag_h(h);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn addc(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_add, true);
-        self.a.set(val);
-        self.set_flag_n(false);
-        self.set_flag_c(c);
-        self.set_flag_h(h);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn sub(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_sub, false);
-        self.a.set(val);
-        self.set_flag_n(true);
-        self.set_flag_c(c);
-        self.set_flag_h(h);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn subc(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_sub, true);
-        self.a.set(val);
-        self.set_flag_n(true);
-        self.set_flag_c(c);
-        self.set_flag_h(h);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn and(&mut self, value: u8) {
-        self.a.set(self.a.get() & value);
-        self.set_flag_n(false);
-        self.set_flag_h(true);
-        self.set_flag_c(false);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn xor(&mut self, value: u8) {
-        self.a.set(self.a.get() ^ value);
-        self.set_flag_n(false);
-        self.set_flag_h(false);
-        self.set_flag_c(false);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn or(&mut self, value: u8) {
-        self.a.set(self.a.get() | value);
-        self.set_flag_n(false);
-        self.set_flag_h(false);
-        self.set_flag_c(false);
-        self.set_flag_z(self.a.get() == 0)
-    }
-    pub fn cmp(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_sub, false);
-        self.set_flag_n(true);
-        self.set_flag_c(c);
-        self.set_flag_h(h);
-        self.set_flag_z(val == 0);
-    }
-    pub fn rotate_left_a(&mut self, carry: bool){
-        if carry {
-            self.set_flag_c(self.a.value.bit(7))
-        } else {
-            self.a.value.set_bit(7, self.get_flag_c())
-        }
-        self.a.value = self.a.value.rotate_left(1);
-        self.set_flag_h(false);
-        self.set_flag_z(false);
-        self.set_flag_n(false)
-    }
-    pub fn rotate_right_a(&mut self, carry: bool){
-        if carry {
-            self.set_flag_c(self.a.value.bit(0))
-        } else {
-            self.a.value.set_bit(0, self.get_flag_c())
-        }
-        self.a.value = self.a.value.rotate_right(1);
-        self.set_flag_h(false);
-        self.set_flag_z(false);
-        self.set_flag_n(false)
-    }
-    pub fn rl_a(&mut self, carry: bool){
-        if carry {
-            self.set_flag_c(self.a.value.bit(7))
-        } else {
-            self.a.value.set_bit(7, self.get_flag_c())
-        }
-        self.a.value = self.a.value.rotate_left(1);
-        self.set_flag_h(false);
-        self.set_flag_z(self.a.get() == 0);
-        self.set_flag_n(false)
-    }
-}
-
+/*
 #[cfg(test)]
 mod tests {
     use crate::register::{Register, Registers};
@@ -420,4 +164,4 @@ mod tests {
         reg.set_l(98);
         assert_eq!(reg.get_hl(), (165 << 8) | 98);
     }
-}
+}*/

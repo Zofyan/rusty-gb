@@ -29,7 +29,7 @@ impl Emulator {
         let ten_millis = time::Duration::from_millis(20);
         loop {
             self.cpu.step();
-            if self.cpu.bus.get(0xFF02) == 1 {
+            if self.cpu.bus.get(0xFF02) > 0 {
                 print!("{}", self.cpu.bus.get(0xFF01) as char);
                 self.cpu.bus.set(0xFF02, 0);
             }

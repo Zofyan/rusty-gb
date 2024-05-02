@@ -6,7 +6,7 @@ mod emulator;
 mod register;
 
 fn main() {
-    let mut emu = Emulator::new("/home/saarrass/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
+    let mut emu = Emulator::new("C:\\Users\\Sofyan\\RustroverProjects\\rusty-gb\\test-roms\\gb-test-roms-master\\cpu_instrs\\individual\\07-jr,jp,call,ret,rst.gb");
 
     emu.run();
 }

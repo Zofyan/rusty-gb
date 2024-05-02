@@ -33,7 +33,7 @@ impl Emulator {
                 print!("{}", self.cpu.bus.get(0xFF01) as char);
                 self.cpu.bus.set(0xFF02, 0);
             }
-            thread::sleep(ten_millis);
+            //thread::sleep(ten_millis);
         }
     }
 }

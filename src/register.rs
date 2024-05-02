@@ -1,8 +1,41 @@
 #![allow(dead_code)]
 use bitfield::{Bit, BitMut};
 
+pub struct Register {
+    value: u8
+}
+
+impl Register {
+    pub fn get(&self) -> u8 {
+        self.value
+    }
+    pub fn set(&mut self, value: u8) {
+        self.value = value
+    }
+
+    fn arithmetic_flags(&self, base: u8, value: u8, func: fn(u8, u8) -> (u8, bool), carry: bool) -> (u8, bool, bool){
+        let (mut c2, mut h2) = (false, false);
+        let (mut val, c) = func(base, value);
+        let (_, h) = func(base << 4, value << 4);
+        if carry{
+            (val, c2) = func(val, self.get_flag_c() as u8);
+            (_, h2) = func(val << 4, (self.get_flag_c() as u8) << 4);
+        }
+        (val, c | c2, h | h2)
+    }
+    pub fn inc(&mut self) -> (u8, bool) {
+        let (val, _, h) = self.arithmetic_flags(self.value, 1, u8::overflowing_add, false);
+        self.value = val;
+        (val, h)
+    }
+    pub fn dec(&mut self) -> (u8, bool) {
+        let (val, _, h) = self.arithmetic_flags(self.value, 1, u8::overflowing_sub, false);
+        self.value = val;
+        (val, h)
+    }
+}
 pub struct Registers {
-    a: u8,
+    a: Register,
     b: u8,
     c: u8,
     d: u8,
@@ -17,7 +50,7 @@ pub struct Registers {
 impl Registers {
     pub fn new() -> Registers {
         Registers {
-            a: 0,
+            a: Register { value: 0 },
             b: 0,
             c: 0,
             d: 0,
@@ -54,7 +87,7 @@ impl Registers {
         self.f.set_bit(7, value)
     }
     pub fn get_af(&self) -> u16 {
-        ((self.a as u16) << 8) | self.f as u16
+        ((self.a.get() as u16) << 8) | self.f as u16
     }
     pub fn get_bc(&self) -> u16 {
         ((self.b as u16) << 8) | self.c as u16
@@ -66,7 +99,7 @@ impl Registers {
         ((self.h as u16) << 8) | self.l as u16
     }
     pub fn get_a(&self) -> u8 {
-        self.a
+        self.a.get()
     }
     pub fn get_f(&self) -> u8 {
         self.f
@@ -97,7 +130,7 @@ impl Registers {
     }
 
     pub fn set_af(&mut self, value: u16) {
-        self.a = (value >> 8) as u8;
+        self.a.set((value >> 8) as u8);
         self.f = value as u8
     }
     pub fn set_bc(&mut self, value: u16) {
@@ -119,7 +152,7 @@ impl Registers {
         self.pc = value
     }
     pub fn set_a(&mut self, value: u8) {
-        self.a = value
+        self.a.set(value)
     }
     pub fn set_b(&mut self, value: u8) {
         self.b = value
@@ -138,16 +171,6 @@ impl Registers {
     }
     pub fn set_l(&mut self, value: u8) {
         self.l = value
-    }
-    fn arithmetic_flags(&self, base: u8, value: u8, func: fn(u8, u8) -> (u8, bool), carry: bool) -> (u8, bool, bool){
-        let (mut c2, mut h2) = (false, false);
-        let (mut val, c) = func(base, value);
-        let (_, h) = func(base << 4, value << 4);
-        if carry{
-            (val, c2) = func(val, self.get_flag_c() as u8);
-            (_, h2) = func(val << 4, (self.get_flag_c() as u8) << 4);
-        }
-        (val, c | c2, h | h2)
     }
     fn arithmetic_flags16(&self, value: u16, func: fn(u16, u16) -> (u16, bool)) -> (u16, bool, bool) {
         let (val, c) = func(self.get_hl(), value);
@@ -170,11 +193,11 @@ impl Registers {
     pub fn inc16_sp(&mut self) { self.set_sp(self.get_sp().wrapping_add(1)); }
     pub fn dec16_sp(&mut self) { self.set_sp(self.get_sp().wrapping_sub(1)); }
     pub fn inc_a(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.a, 1, u8::overflowing_add, false);
-        self.a = val;
+        let (val, _, h) = self.arithmetic_flags(self.a.get(), 1, u8::overflowing_add, false);
+        self.a.set(val);
         self.set_flag_n(false);
         self.set_flag_h(h);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn inc_b(&mut self) {
         let (val, _, h) = self.arithmetic_flags(self.b, 1, u8::overflowing_add, false);
@@ -226,11 +249,11 @@ impl Registers {
         self.set_flag_z(*target == 0)
     }
     pub fn dec_a(&mut self) {
-        let (val, _, h) = self.arithmetic_flags(self.a, 1, u8::overflowing_sub, false);
-        self.a = val;
+        let (val, _, h) = self.arithmetic_flags(self.a.get(), 1, u8::overflowing_sub, false);
+        self.a.set(val);
         self.set_flag_n(true);
         self.set_flag_h(h);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn dec_b(&mut self) {
         let (val, _, h) = self.arithmetic_flags(self.b, 1, u8::overflowing_sub, false);
@@ -282,60 +305,60 @@ impl Registers {
         self.set_flag_z(*target == 0)
     }
     pub fn add(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a, value, u8::overflowing_add, false);
-        self.a = val;
+        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_add, false);
+        self.a.set(val);
         self.set_flag_n(false);
         self.set_flag_c(c);
         self.set_flag_h(h);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn addc(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a, value, u8::overflowing_add, true);
-        self.a = val;
+        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_add, true);
+        self.a.set(val);
         self.set_flag_n(false);
         self.set_flag_c(c);
         self.set_flag_h(h);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn sub(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a, value, u8::overflowing_sub, false);
-        self.a = val;
+        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_sub, false);
+        self.a.set(val);
         self.set_flag_n(true);
         self.set_flag_c(c);
         self.set_flag_h(h);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn subc(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a, value, u8::overflowing_sub, true);
-        self.a = val;
+        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_sub, true);
+        self.a.set(val);
         self.set_flag_n(true);
         self.set_flag_c(c);
         self.set_flag_h(h);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn and(&mut self, value: u8) {
-        self.a &= value;
+        self.a.set(self.a.get() & value);
         self.set_flag_n(false);
         self.set_flag_h(true);
         self.set_flag_c(false);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn xor(&mut self, value: u8) {
-        self.a ^= value;
+        self.a.set(self.a.get() ^ value);
         self.set_flag_n(false);
         self.set_flag_h(false);
         self.set_flag_c(false);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn or(&mut self, value: u8) {
-        self.a |= value;
+        self.a.set(self.a.get() | value);
         self.set_flag_n(false);
         self.set_flag_h(false);
         self.set_flag_c(false);
-        self.set_flag_z(self.a == 0)
+        self.set_flag_z(self.a.get() == 0)
     }
     pub fn cmp(&mut self, value: u8) {
-        let (val, c, h) = self.arithmetic_flags(self.a, value, u8::overflowing_sub, false);
+        let (val, c, h) = self.arithmetic_flags(self.a.get(), value, u8::overflowing_sub, false);
         self.set_flag_n(true);
         self.set_flag_c(c);
         self.set_flag_h(h);
@@ -343,35 +366,46 @@ impl Registers {
     }
     pub fn rotate_left_a(&mut self, carry: bool){
         if carry {
-            self.set_flag_c(self.a.bit(7))
+            self.set_flag_c(self.a.value.bit(7))
         } else {
-            self.a.set_bit(7, self.get_flag_c())
+            self.a.value.set_bit(7, self.get_flag_c())
         }
-        self.a = self.a.rotate_left(1);
+        self.a.value = self.a.value.rotate_left(1);
         self.set_flag_h(false);
         self.set_flag_z(false);
         self.set_flag_n(false)
     }
     pub fn rotate_right_a(&mut self, carry: bool){
         if carry {
-            self.set_flag_c(self.a.bit(0))
+            self.set_flag_c(self.a.value.bit(0))
         } else {
-            self.a.set_bit(0, self.get_flag_c())
+            self.a.value.set_bit(0, self.get_flag_c())
         }
-        self.a = self.a.rotate_right(1);
+        self.a.value = self.a.value.rotate_right(1);
         self.set_flag_h(false);
         self.set_flag_z(false);
+        self.set_flag_n(false)
+    }
+    pub fn rl_a(&mut self, carry: bool){
+        if carry {
+            self.set_flag_c(self.a.value.bit(7))
+        } else {
+            self.a.value.set_bit(7, self.get_flag_c())
+        }
+        self.a.value = self.a.value.rotate_left(1);
+        self.set_flag_h(false);
+        self.set_flag_z(self.a.get() == 0);
         self.set_flag_n(false)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::register::Registers;
+    use crate::register::{Register, Registers};
 
     #[test]
     fn basic() {
-        let mut reg = Registers { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, h: 0, l: 0, sp: 0, pc: 0 };
+        let mut reg = Registers { a: Register {value:0}, b: 0, c: 0, d: 0, e: 0, f: 0, h: 0, l: 0, sp: 0, pc: 0 };
 
         assert_eq!(reg.get_d(), 0);
         reg.set_d(34);

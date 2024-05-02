@@ -78,6 +78,14 @@ impl Cpu {
         self._pc(1);
         true
     }
+    fn prefix(&mut self, inst: (u8, u8)) -> bool {
+        if inst != (0xc, 0xb){
+            return false
+        }
+        let opcode = self.bus.get(self.registers.get_pc() + 1);
+        let inst = (opcode >> 4, opcode & 0xF);
+        true
+    }
     fn call(&mut self, inst: (u8, u8)) -> bool {
         let new_pc = match inst {
             (0xc..=0xd, 4 | 0xc) | (0xc, 0xd) => self.bus.get16(self.registers.get_pc() + 1),

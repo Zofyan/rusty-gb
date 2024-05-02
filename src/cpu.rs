@@ -4,6 +4,7 @@ use crate::register::Registers;
 pub struct Cpu {
     pub bus: Bus,
     pub registers: Registers,
+    counter: u32,
 }
 
 impl Cpu {
@@ -17,25 +18,25 @@ impl Cpu {
         registers.set_af(0x01B0);
         registers.set_de(0x00D8);
         registers.set_hl(0x014D);
-        Cpu { bus, registers }
+        Cpu { bus, registers, counter: 0 }
     }
 
-    fn log(&self){
+    fn log(&self) {
         println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})",
-            self.registers.get_a(),
-            self.registers.get_f(),
-            self.registers.get_b(),
-            self.registers.get_c(),
-            self.registers.get_d(),
-            self.registers.get_e(),
-            self.registers.get_h(),
-            self.registers.get_l(),
-            self.registers.get_sp(),
-            self.registers.get_pc(),
-            self.bus.get(self.registers.get_pc()),
-            self.bus.get(self.registers.get_pc() + 1),
-            self.bus.get(self.registers.get_pc() + 2),
-            self.bus.get(self.registers.get_pc() + 3)
+                 self.registers.get_a(),
+                 self.registers.get_f(),
+                 self.registers.get_b(),
+                 self.registers.get_c(),
+                 self.registers.get_d(),
+                 self.registers.get_e(),
+                 self.registers.get_h(),
+                 self.registers.get_l(),
+                 self.registers.get_sp(),
+                 self.registers.get_pc(),
+                 self.bus.get(self.registers.get_pc()),
+                 self.bus.get(self.registers.get_pc() + 1),
+                 self.bus.get(self.registers.get_pc() + 2),
+                 self.bus.get(self.registers.get_pc() + 3)
         )
     }
     pub fn step(&mut self) {
@@ -51,21 +52,25 @@ impl Cpu {
             !self.misc(inst) &&
             !self.rotate(inst) &&
             !self.reset(inst) &&
+            !self.call(inst) &&
+            !self.ret(inst) &&
             !self.push(inst) {
             panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.registers.get_pc())
         }
+        self.counter += 1;
+        //if self.counter % 100 == 0 {
+        //    println!("{}", self.counter);
         //self.log();
+        //}
     }
 
     fn _cycles(&self, _count: usize) {}
     fn _pc(&mut self, count: u16) { self.registers.set_pc(self.registers.get_pc() + count) }
     fn misc(&mut self, inst: (u8, u8)) -> bool {
         match inst {
-            (0, 0) => {},
+            (0, 0) => {}
             (1, 0) | (7, 6) => panic!("Stopped/Halted"),
-            (0xf, 3) => {
-
-            },
+            (0xf, 3) => {}
             (0xf, 0xb) => (),
             _ => return false
         }
@@ -73,8 +78,51 @@ impl Cpu {
         self._pc(1);
         true
     }
+    fn call(&mut self, inst: (u8, u8)) -> bool {
+        let new_pc = match inst {
+            (0xc..=0xd, 4 | 0xc) | (0xc, 0xd) => self.bus.get16(self.registers.get_pc() + 1),
+            _ => return false
+        };
+        let condition = match inst {
+            (0xc, 4) => !self.registers.get_flag_z(),
+            (0xd, 4) => !self.registers.get_flag_c(),
+            (0xc, 0xc) => self.registers.get_flag_z(),
+            (0xd, 0xc) => self.registers.get_flag_c(),
+            _ => true
+        };
+        self._pc(3);
+        if condition {
+            self._push(self.registers.get_pc());
+            self.registers.set_pc(new_pc);
+            self._cycles(3);
+        }
+        self._cycles(3);
+        true
+    }
+    fn ret(&mut self, inst: (u8, u8)) -> bool {
+        let condition = match inst {
+            (0xc, 0) => !self.registers.get_flag_z(),
+            (0xd, 0) => !self.registers.get_flag_c(),
+            (0xc, 0x8) => self.registers.get_flag_z(),
+            (0xd, 0x8) => self.registers.get_flag_c(),
+            (0xc, 0x9) => true,
+            _ => return false
+        };
+        self._pc(1);
+        if condition {
+            let new_pc = self._pop();
+            self.registers.set_pc(new_pc);
+            if inst == (0xc, 0x9) {
+                self._cycles(4);
+            } else{
+                self._cycles(5);
+            }
+        } else{
+            self._cycles(2);
+        }
+        true
+    }
     fn reset(&mut self, inst: (u8, u8)) -> bool {
-        self._push(self.registers.get_pc());
         let new_pc = match inst {
             (0xc, 7) => self.bus.get16(0x0),
             (0xc, 0xf) => self.bus.get16(0x8),
@@ -86,6 +134,8 @@ impl Cpu {
             (0xf, 0xf) => self.bus.get16(0x38),
             _ => return false
         };
+        self._pc(1);
+        self._push(self.registers.get_pc());
         self.registers.set_pc(new_pc);
         true
     }
@@ -215,7 +265,7 @@ impl Cpu {
             _ => ()
         }
         match inst {
-            (0..=3, 2 | 0xa) | (4..=7, 6 | 0xe) | (7, 0..=7) => {
+            (0..=3, 2 | 0xa) | (4..=7, 6 | 0xe) | (7, 0..=7) | (0xe..=0xf, 2) => {
                 self._cycles(2);
                 self._pc(1)
             }
@@ -223,7 +273,7 @@ impl Cpu {
                 self._cycles(2);
                 self._pc(2)
             }
-            (3, 6) => {
+            (3, 6) | (0xe..=0xf, 0) => {
                 self._cycles(3);
                 self._pc(2)
             }
@@ -335,14 +385,17 @@ impl Cpu {
         if condition {
             match inst {
                 (2..=3, 0) | (1..=3, 8) => self.registers.set_pc(pc.wrapping_add_signed(self.bus.gets(pc + 1) as i16) + 2),
-                (0xc..=0xd, 2) | (0xc..=0xd, 0xa) | (0xc, 0x3) => {self.registers.set_pc(self.bus.get16(pc + 1)); self._cycles(1)},
+                (0xc..=0xd, 2) | (0xc..=0xd, 0xa) | (0xc, 0x3) => {
+                    self.registers.set_pc(self.bus.get16(pc + 1));
+                    self._cycles(1)
+                }
                 _ => return false
             }
             self._cycles(3)
-        } else{
+        } else {
             if inst.0 <= 3 {
                 self._pc(2)
-            } else{
+            } else {
                 self._pc(3);
                 self._cycles(1)
             }
@@ -359,11 +412,12 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn not_implemented(){
+    fn not_implemented() {
         let mut cpu = Cpu::new();
         cpu.bus.set(cpu.registers.get_pc(), 0xe8);
         cpu.step();
     }
+
     #[test]
     fn jump() {
         let mut cpu = Cpu::new();
@@ -380,6 +434,7 @@ mod tests {
             assert_eq!(cpu.registers.get_pc(), y1.wrapping_add_signed((x1 as i8) as i16) + 2);
         }
     }
+
     #[test]
     fn load() {
         let mut cpu = Cpu::new();
@@ -416,33 +471,35 @@ mod tests {
         cpu.load((1, 0xe));
         assert_eq!(cpu.registers.get_e(), x1);
     }
+
     #[test]
-    fn rotate_a(){
+    fn rotate_a() {
         let mut cpu = Cpu::new();
 
-        let x1 =0b01010101;
-        let x2 =0b10101010;
+        let x1 = 0b01010101;
+        let x2 = 0b10101010;
 
         cpu.registers.set_a(x1);
         cpu.rotate((0, 7));
-        assert_eq!(cpu.registers.get_a(),x2);
+        assert_eq!(cpu.registers.get_a(), x2);
         assert_eq!(cpu.registers.get_flag_c(), false);
 
         cpu.registers.set_a(x1);
         cpu.rotate((0, 0xf));
-        assert_eq!(cpu.registers.get_a(),x2);
+        assert_eq!(cpu.registers.get_a(), x2);
         assert_eq!(cpu.registers.get_flag_c(), true);
 
         cpu.registers.set_a(x2);
         cpu.rotate((0, 7));
-        assert_eq!(cpu.registers.get_a(),x1);
+        assert_eq!(cpu.registers.get_a(), x1);
         assert_eq!(cpu.registers.get_flag_c(), true);
 
         cpu.registers.set_a(x2);
         cpu.rotate((0, 0xf));
-        assert_eq!(cpu.registers.get_a(),x1);
+        assert_eq!(cpu.registers.get_a(), x1);
         assert_eq!(cpu.registers.get_flag_c(), false);
     }
+
     #[test]
     fn alu() {
         let mut cpu = Cpu::new();
@@ -540,13 +597,14 @@ mod tests {
         assert_eq!(cpu.registers.get_flag_n(), false);
         assert_eq!(cpu.registers.get_flag_h(), true);
     }
+
     #[test]
     fn inc() {
         let mut cpu = Cpu::new();
 
         let x1 = 0x1;
         let x2 = 0xff;
-        let x3 =0x0f;
+        let x3 = 0x0f;
 
         cpu.registers.set_c(x1);
         cpu.alu((0, 0xc));
@@ -562,15 +620,15 @@ mod tests {
         cpu.alu((0, 0xc));
         assert_eq!(cpu.registers.get_flag_h(), true);
         assert_eq!(cpu.registers.get_flag_n(), false);
-
     }
+
     #[test]
     fn dec() {
         let mut cpu = Cpu::new();
 
         let x1 = 0x1;
         let x2 = 0xff;
-        let x3 =0x00;
+        let x3 = 0x00;
 
         cpu.registers.set_c(x2);
         cpu.alu((0, 0xd));
@@ -586,8 +644,8 @@ mod tests {
         cpu.alu((0, 0xd));
         assert_eq!(cpu.registers.get_flag_h(), true);
         assert_eq!(cpu.registers.get_flag_n(), true);
-
     }
+
     #[test]
     fn stack() {
         let mut cpu = Cpu::new();

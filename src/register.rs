@@ -161,14 +161,14 @@ impl Registers {
         self.set_flag_c(c);
         self.set_flag_h(h);
     }
-    pub fn inc16_bc(&mut self) { self.set_bc(self.get_bc() + 1); }
-    pub fn dec16_bc(&mut self) { self.set_bc(self.get_bc() - 1); }
-    pub fn inc16_de(&mut self) { self.set_de(self.get_de() + 1); }
-    pub fn dec16_de(&mut self) { self.set_de(self.get_de() - 1); }
-    pub fn inc16_hl(&mut self) { self.set_hl(self.get_hl() + 1); }
-    pub fn dec16_hl(&mut self) { self.set_hl(self.get_hl() - 1); }
-    pub fn inc16_sp(&mut self) { self.set_sp(self.get_sp() + 1); }
-    pub fn dec16_sp(&mut self) { self.set_sp(self.get_sp() - 1); }
+    pub fn inc16_bc(&mut self) { self.set_bc(self.get_bc().wrapping_add(1)); }
+    pub fn dec16_bc(&mut self) { self.set_bc(self.get_bc().wrapping_sub(1)); }
+    pub fn inc16_de(&mut self) { self.set_de(self.get_de().wrapping_add(1)); }
+    pub fn dec16_de(&mut self) { self.set_de(self.get_de().wrapping_sub(1)); }
+    pub fn inc16_hl(&mut self) { self.set_hl(self.get_hl().wrapping_add(1)); }
+    pub fn dec16_hl(&mut self) { self.set_hl(self.get_hl().wrapping_sub(1)); }
+    pub fn inc16_sp(&mut self) { self.set_sp(self.get_sp().wrapping_add(1)); }
+    pub fn dec16_sp(&mut self) { self.set_sp(self.get_sp().wrapping_sub(1)); }
     pub fn inc_a(&mut self) {
         let (val, _, h) = self.arithmetic_flags(self.a, 1, u8::overflowing_add, false);
         self.a = val;

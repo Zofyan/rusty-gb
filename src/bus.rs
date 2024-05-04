@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use bitfield::{Bit, BitMut};
+use crate::memory::Memory;
 
 pub const ROM_0: u16 = 0x0000;
 pub const ROM_0_END: u16 = 0x3FFF;
@@ -36,75 +37,39 @@ pub const HRAM_SIZE: u16 = HRAM_END - HRAM + 1;
 pub const INT_ENABLE_SIZE: u16 = INT_ENABLE_END - INT_ENABLE + 1;
 
 pub struct Bus {
-    rom_0: [u8; ROM_0_SIZE as usize],
-    rom_n: [u8; ROM_N_SIZE as usize],
-    vram: [u8; VRAM_SIZE as usize],
-    eram: [u8; ERAM_SIZE as usize],
-    wram_0: [u8; WRAM_0_SIZE as usize],
-    wram_n: [u8; WRAM_N_SIZE as usize],
-    oam: [u8; OAM_SIZE as usize],
-    io_registers: [u8; IO_REGISTERS_SIZE as usize],
-    hram: [u8; HRAM_SIZE as usize],
-    int_enable: [u8; INT_ENABLE_SIZE as usize],
+    memory: Memory,
+    pub(crate) fifo: Vec<u8>
 }
 
 impl Bus {
     pub fn new() -> Bus {
-        Bus { rom_0: [0; ROM_0_SIZE as usize], rom_n: [0; ROM_N_SIZE as usize], vram: [0; VRAM_SIZE as usize], eram: [0; ERAM_SIZE as usize], wram_0: [0; WRAM_0_SIZE as usize], wram_n: [0; WRAM_N_SIZE as usize], oam: [0; OAM_SIZE as usize], io_registers: [0; IO_REGISTERS_SIZE as usize], hram: [0; HRAM_SIZE as usize], int_enable: [0; INT_ENABLE_SIZE as usize] }
-    }
-    pub fn get_target_mut(&mut self, address: u16) -> &mut u8 {
-        match address {
-            ..=ROM_0_END => &mut self.rom_0[(address - ROM_0) as usize],
-            ROM_N..=ROM_N_END => &mut self.rom_n[(address - ROM_N) as usize],
-            VRAM..=VRAM_END => &mut self.vram[(address - VRAM) as usize],
-            ERAM..=ERAM_END => &mut self.eram[(address - ERAM) as usize],
-            WRAM_0..=WRAM_0_END => &mut self.wram_0[(address - WRAM_0) as usize],
-            WRAM_N..=WRAM_N_END => &mut self.wram_n[(address - WRAM_N) as usize],
-            OAM..=OAM_END => &mut self.oam[(address - OAM) as usize],
-            IO_REGISTERS..=IO_REGISTERS_END => &mut self.io_registers[(address - IO_REGISTERS) as usize],
-            HRAM..=HRAM_END => &mut self.hram[(address - HRAM) as usize],
-            INT_ENABLE..=INT_ENABLE_END => &mut self.int_enable[(address - INT_ENABLE) as usize],
-            _ => panic!("Not implemented yet!")
-        }
-    }
-    pub fn get_target(&self, address: u16) -> &u8 {
-        match address {
-            ..=ROM_0_END => &self.rom_0[(address - ROM_0) as usize],
-            ROM_N..=ROM_N_END => &self.rom_n[(address - ROM_N) as usize],
-            VRAM..=VRAM_END => &self.vram[(address - VRAM) as usize],
-            ERAM..=ERAM_END => &self.eram[(address - ERAM) as usize],
-            WRAM_0..=WRAM_0_END => &self.wram_0[(address - WRAM_0) as usize],
-            WRAM_N..=WRAM_N_END => &self.wram_n[(address - WRAM_N) as usize],
-            OAM..=OAM_END => &self.oam[(address - OAM) as usize],
-            IO_REGISTERS..=IO_REGISTERS_END => &self.io_registers[(address - IO_REGISTERS) as usize],
-            HRAM..=HRAM_END => &self.hram[(address - HRAM) as usize],
-            INT_ENABLE..=INT_ENABLE_END => &self.int_enable[(address - INT_ENABLE) as usize],
-            _ => panic!("Not implemented yet!")
-        }
+        Bus { memory: Memory::new(), fifo: vec![] }
     }
     pub fn get(&self, address: u16) -> u8 {
-        *self.get_target(address)
+        match address {
+            //0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
+            _ => self.memory.get(address)
+        }
     }
     pub fn gets(&self, address: u16) -> i8 {
-        *self.get_target(address) as i8
+        self.get(address) as i8
     }
     pub fn get16(&self, address: u16) -> u16 {
-        let (target1, target2) = (self.get_target(address), self.get_target(address + 1));
-        let v1 = *target1 as u16;
-        let v2 = *target2 as u16;
+        let v1 = self.get(address) as u16;
+        let v2 = self.get(address + 1) as u16;
         v2 << 8 | v1
     }
     pub fn set(&mut self, address: u16, value: u8) {
-        let target = self.get_target_mut(address);
-        *target = value
+        match address {
+            0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
+            _ => self.memory.set(address, value)
+        }
     }
     pub fn set16(&mut self, address: u16, value: u16) {
-        let target = self.get_target_mut(address);
-        *target = value as u8;
-        let target = self.get_target_mut(address + 1);
-        *target = (value >> 8) as u8
+        self.set(address, value as u8);
+        self.set(address + 1, (value >> 8) as u8);
     }
-    
+
     pub fn rl(&mut self, _: bool, carry_value: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
         value.set_bit(0, carry_value);
@@ -133,21 +98,21 @@ impl Bus {
     }
     pub fn sla(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
-        let c= value.bit(7);
+        let c = value.bit(7);
         value <<= 1;
         self.set(address, value);
         (value == 0, false, false, c)
     }
     pub fn srl(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
-        let c= value.bit(0);
+        let c = value.bit(0);
         value >>= 1;
         self.set(address, value);
         (value == 0, false, false, c)
     }
     pub fn sra(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
-        let c= value.bit(0);
+        let c = value.bit(0);
         value = (value >> 1) | value;
         self.set(address, value);
         (value == 0, false, false, c)
@@ -159,7 +124,7 @@ impl Bus {
         (value == 0, false, false, false)
     }
     pub fn bit(&mut self, _: bool, _: bool, bit: usize, address: u16) -> (bool, bool, bool, bool) {
-        let mut value = self.get(address);
+        let value = self.get(address);
         (!value.bit(bit), false, true, false)
     }
     pub fn reset(&mut self, _: bool, _: bool, bit: usize, address: u16) -> (bool, bool, bool, bool) {
@@ -174,9 +139,92 @@ impl Bus {
         self.set(address, value);
         (false, false, false, false)
     }
-
+    pub fn set_int_enable_joypad(&mut self, value: bool){
+        let mut val =  self.get(0xFF0F);
+        val.set_bit(4, value);
+        self.set(0xFFFF, val);
+    }
+    pub fn set_int_enable_serial(&mut self, value: bool){
+        let mut val =  self.get(0xFFFF);
+        val.set_bit(3, value);
+        self.set(0xFFFF, val);
+    }
+    pub fn set_int_enable_timer(&mut self, value: bool){
+        let mut val =  self.get(0xFFFF);
+        val.set_bit(2, value);
+        self.set(0xFFFF, val);
+    }
+    pub fn set_int_enable_lcd(&mut self, value: bool){
+        let mut val =  self.get(0xFFFF);
+        val.set_bit(1, value);
+        self.set(0xFFFF, val);
+    }
+    pub fn set_int_enable_vblank(&mut self, value: bool){
+        let mut val =  self.get(0xFFFF);
+        val.set_bit(0, value);
+        self.set(0xFFFF, val);
+    }
+    pub fn get_int_enable_joypad(&self) -> bool{
+        self.get(0xFFFF).bit(4)
+    }
+    pub fn get_int_enable_serial(&self) -> bool{
+        self.get(0xFFFF).bit(3)
+    }
+    pub fn get_int_enable_timer(&self) -> bool{
+        self.get(0xFFFF).bit(2)
+    }
+    pub fn get_int_enable_lcd(&self) -> bool{
+        self.get(0xFFFF).bit(1)
+    }
+    pub fn get_int_enable_vblank(&self) -> bool{
+        self.get(0xFFFF).bit(0)
+    }
+    pub fn set_int_request_joypad(&mut self, value: bool){
+        let mut val =  self.get(0xFF0F);
+        val.set_bit(4, value);
+        self.set(0xFF0F, val);
+    }
+    pub fn set_int_request_serial(&mut self, value: bool){
+        let mut val =  self.get(0xFF0F);
+        val.set_bit(3, value);
+        self.set(0xFF0F, val);
+    }
+    pub fn set_int_request_timer(&mut self, value: bool){
+        let mut val =  self.get(0xFF0F);
+        val.set_bit(2, value);
+        self.set(0xFF0F, val);
+    }
+    pub fn set_int_request_lcd(&mut self, value: bool){
+        let mut val =  self.get(0xFF0F);
+        val.set_bit(1, value);
+        self.set(0xFF0F, val);
+    }
+    pub fn set_int_request_vblank(&mut self, value: bool){
+        let mut val =  self.get(0xFF0F);
+        val.set_bit(0, value);
+        self.set(0xFF0F, val);
+    }
+    pub fn get_int_request_joypad(&self) -> bool{
+        self.get(0xFF0F).bit(4)
+    }
+    pub fn get_int_request_serial(&self) -> bool{
+        self.get(0xFF0F).bit(3)
+    }
+    pub fn get_int_request_timer(&self) -> bool{
+        self.get(0xFF0F).bit(2)
+    }
+    pub fn get_int_request_lcd(&self) -> bool{
+        self.get(0xFF0F).bit(1)
+    }
+    pub fn get_int_request_vblank(&self) -> bool{
+        self.get(0xFF0F).bit(0)
+    }
+    pub fn set_joypad_input(&mut self, bit: usize, value: bool){
+        let mut val= self.get(0xFF00);
+        val.set_bit(bit, !value);
+        self.set(0xFF00, val)
+    }
     pub fn load_rom(&mut self, buffer: Vec<u8>) {
-        self.rom_0[..ROM_0_SIZE as usize].copy_from_slice(&buffer[..=ROM_0_END as usize]);
-        self.rom_n[..ROM_N_SIZE as usize].copy_from_slice(&buffer[ROM_N as usize..=ROM_N_END as usize]);
+        self.memory.load_rom(buffer);
     }
 }

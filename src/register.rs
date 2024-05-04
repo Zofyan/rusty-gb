@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-
-use std::ops::Shl;
 use bitfield::{Bit, BitMut};
 
 pub struct Register {
@@ -129,18 +126,6 @@ impl Register {
         self.value = val;
         (val == 0, true, h, c)
     }
-}
-pub struct Registers {
-    a: Register,
-    b: u8,
-    c: u8,
-    d: u8,
-    e: u8,
-    f: u8,
-    h: u8,
-    l: u8,
-    sp: u16,
-    pc: u16,
 }
 /*
 #[cfg(test)]

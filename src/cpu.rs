@@ -2,7 +2,6 @@ use crate::bus::Bus;
 use crate::register::Register;
 
 pub struct Cpu {
-    pub bus: Bus,
     a: Register,
     b: Register,
     c: Register,
@@ -13,14 +12,14 @@ pub struct Cpu {
     l: Register,
     sp: u16,
     pc: u16,
-    counter: u32,
+    counter: usize,
+    ime: bool,
 }
 
 impl Cpu {
     // Constructor for Cpu
     pub fn new() -> Cpu {
-        let bus = Bus::new();
-        let mut cpu = Cpu { bus, a: Register { value: 0 }, b: Register { value: 0 }, c: Register { value: 0 }, d: Register { value: 0 }, e: Register { value: 0 }, f: Register { value: 0 }, h: Register { value: 0 }, l: Register { value: 0 }, pc: 0, sp: 0, counter: 0 };
+        let mut cpu = Cpu { a: Register { value: 0 }, b: Register { value: 0 }, c: Register { value: 0 }, d: Register { value: 0 }, e: Register { value: 0 }, f: Register { value: 0 }, h: Register { value: 0 }, l: Register { value: 0 }, pc: 0, sp: 0, counter: 0, ime: true };
         cpu.set_sp(crate::bus::HRAM_END);
         cpu.set_pc(0x0100);
         cpu.set_bc(0x0013);
@@ -30,7 +29,7 @@ impl Cpu {
         cpu
     }
 
-    fn log(&self) {
+    fn log(&self, bus: &Bus) {
         println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})",
                  self.a.get(),
                  self.f.get(),
@@ -42,41 +41,53 @@ impl Cpu {
                  self.l.get(),
                  self.get_sp(),
                  self.get_pc(),
-                 self.bus.get(self.get_pc()),
-                 self.bus.get(self.get_pc() + 1),
-                 self.bus.get(self.get_pc() + 2),
-                 self.bus.get(self.get_pc() + 3)
+                 bus.get(self.get_pc()),
+                 bus.get(self.get_pc() + 1),
+                 bus.get(self.get_pc() + 2),
+                 bus.get(self.get_pc() + 3)
         )
     }
-    pub fn step(&mut self) {
-        let opcode = self.bus.get(self.get_pc());
+    pub fn step(&mut self, mut bus: &mut Bus) -> usize {
+        self.log(&bus);
+        let old_counter = self.counter;
+        let opcode = bus.get(self.get_pc());
         let inst = (opcode >> 4, opcode & 0xF);
         //println!("Executing {:#02x}({:#01x}, {:#01x}) at {:#02x}", opcode, inst.0, inst.1, self.get_pc());
-        if !self.load(inst) &&
-            !self.alu(inst) &&
-            !self.load16(inst) &&
-            !self.alu16(inst) &&
-            !self.jump(inst) &&
-            !self.pop(inst) &&
-            !self.misc(inst) &&
-            !self.rotate(inst) &&
-            !self.reset(inst) &&
-            !self.call(inst) &&
-            !self.ret(inst) &&
-            !self.prefix(inst) &&
-            !self.push(inst) {
+        if !self.load(inst, &mut bus) &&
+            !self.alu(inst, &mut bus) &&
+            !self.load16(inst, &mut bus) &&
+            !self.alu16(inst, &mut bus) &&
+            !self.jump(inst, &mut bus) &&
+            !self.pop(inst, &mut bus) &&
+            !self.misc(inst, &mut bus) &&
+            !self.rotate(inst, &mut bus) &&
+            !self.reset(inst, &mut bus) &&
+            !self.call(inst, &mut bus) &&
+            !self.ret(inst, &mut bus) &&
+            !self.prefix(inst, &mut bus) &&
+            !self.push(inst, &mut bus) {
             panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc())
         }
-        self.counter += 1;
         //if self.counter % 100 == 0 {
         //    println!("{}", self.counter);
-        //self.log();
         //}
+        let cycles = self.counter - old_counter;
+        self.counter = 0;
+        cycles
     }
 
-    fn _cycles(&self, _count: usize) {}
+    fn _cycles(&mut self, _count: usize) {
+        self.counter += _count
+    }
     fn _pc(&mut self, count: u16) { self.set_pc(self.get_pc() + count) }
-
+    pub fn interrupt(&mut self, mut bus: &mut Bus, address: u16) -> usize {
+        self._cycles(2);
+        self._push(self.get_pc(), bus);
+        self._cycles(2);
+        self.set_pc(address);
+        self._cycles(1);
+        5
+    }
     fn get_flag_c(&self) -> bool {
         self.f.get_bit(4)
     }
@@ -142,13 +153,13 @@ impl Cpu {
         self.h.set((value >> 8) as u8);
         self.l.set(value as u8)
     }
-    fn arithmetic_flags16(&self, value: u16, func: fn(u16, u16) -> (u16, bool)) -> (u16, bool, bool) {
+    fn arithmetic_flags16(&self, base: u16, value: u16, func: fn(u16, u16) -> (u16, bool)) -> (u16, bool, bool) {
         let (val, c) = func(self.get_hl(), value);
-        let (_, h) = func(self.get_hl() << 8, value << 8);
+        let (_, h) = func(base << 8, value << 8);
         (val, c, h)
     }
     fn add16(&mut self, value: u16) {
-        let (val, c, h) = self.arithmetic_flags16(value, u16::overflowing_add);
+        let (val, c, h) = self.arithmetic_flags16(self.get_hl(), value, u16::overflowing_add);
         self.set_hl(val);
         self.set_flag_n(false);
         self.set_flag_c(c);
@@ -162,33 +173,80 @@ impl Cpu {
     fn dec16_hl(&mut self) { self.set_hl(self.get_hl().wrapping_sub(1)); }
     fn inc16_sp(&mut self) { self.set_sp(self.get_sp().wrapping_add(1)); }
     fn dec16_sp(&mut self) { self.set_sp(self.get_sp().wrapping_sub(1)); }
-    pub fn inc_m(&mut self, address: u16) -> (bool, bool, bool, bool) {
-        let (val, c, h) = self.a.arithmetic_flags(self.bus.get(address), 1, u8::overflowing_add, false, self.get_flag_c());
-        self.bus.set(address, val);
+    fn inc_m(&mut self, address: u16, bus: &mut Bus) -> (bool, bool, bool, bool) {
+        let (val, c, h) = self.a.arithmetic_flags(bus.get(address), 1, u8::overflowing_add, false, self.get_flag_c());
+        bus.set(address, val);
         (val == 0, false, h, c)
     }
-    pub fn dec_m(&mut self, address: u16) -> (bool, bool, bool, bool) {
-        let (val, c, h) = self.a.arithmetic_flags(self.bus.get(address), 1, u8::overflowing_sub, false, self.get_flag_c());
-        self.bus.set(address, val);
+    fn dec_m(&mut self, address: u16, bus: &mut Bus) -> (bool, bool, bool, bool) {
+        let (val, c, h) = self.a.arithmetic_flags(bus.get(address), 1, u8::overflowing_sub, false, self.get_flag_c());
+        bus.set(address, val);
         (val == 0, true, h, c)
     }
-    fn misc(&mut self, inst: (u8, u8)) -> bool {
+    fn set_ime(&mut self, value: bool) {
+        self.ime = value
+    }
+    pub(crate) fn get_ime(&mut self) -> bool {
+        self.ime
+    }
+    fn misc(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         match inst {
             (0, 0) => {}
             (1, 0) | (7, 6) => panic!("Stopped/Halted"),
-            (0xf, 3) => {}
-            (0xf, 0xb) => (),
+            (0xf, 3) => self.set_ime(false),
+            (0xf, 0xb) => self.set_ime(true),
+            (0x3, 0x7) => {
+                self.set_flag_c(true);
+                self.set_flag_n(false);
+                self.set_flag_h(false);
+            }
+            (0x2, 0xf) => {
+                self.a.set(self.a.get() ^ 0xFF);
+                self.set_flag_n(true);
+                self.set_flag_h(true);
+            }
+            (0x3, 0xf) => {
+                self.set_flag_c(!self.get_flag_c());
+                self.set_flag_n(false);
+                self.set_flag_h(false);
+            }
+            (0xe, 0x8) => {
+                let (val, c) = self.get_sp().overflowing_add_signed(bus.gets(self.get_pc() + 1) as i16);
+                let (_, h) = (self.get_sp() as u8).overflowing_add_signed(bus.gets(self.get_pc() + 1));
+                self.set_sp(val);
+                self.set_flag_c(c);
+                self.set_flag_h(h);
+                self.set_flag_z(false);
+                self.set_flag_n(false);
+                self._cycles(3);
+                self._pc(1);
+            }
+            (0xf, 0x8) => {
+                let (val, c) = self.get_sp().overflowing_add_signed(bus.gets(self.get_pc() + 1) as i16);
+                let (_, h) = (self.get_sp() as u8).overflowing_add_signed(bus.gets(self.get_pc() + 1));
+                self.set_hl(val);
+                self.set_flag_c(c);
+                self.set_flag_h(h);
+                self.set_flag_z(false);
+                self.set_flag_n(false);
+                self._cycles(2);
+                self._pc(1);
+            }
+            (0xd, 0x9) => {
+                self.set_ime(true);
+                self.call((0xc, 0x9), &mut bus);
+            }
             _ => return false
         }
         self._cycles(1);
         self._pc(1);
         true
     }
-    fn prefix(&mut self, inst: (u8, u8)) -> bool {
+    fn prefix(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         if inst != (0xc, 0xb) {
             return false;
         }
-        let opcode = self.bus.get(self.get_pc() + 1);
+        let opcode = bus.get(self.get_pc() + 1);
         let inst = (opcode >> 4, opcode & 0xF);
         let current_flag = self.get_flag_c();
         let (z, n, h, c);
@@ -209,15 +267,15 @@ impl Cpu {
                 _ => panic!("Should be impossible!")
             };
             (z, n, h, c) = match inst {
-                (4 | 8 | 0xc, 6) => func(&mut self.bus, false, false, 0, address),
-                (4 | 8 | 0xc, 0xe) => func(&mut self.bus, false, false, 1, address),
-                (5 | 9 | 0xd, 6) => func(&mut self.bus, false, false, 2, address),
-                (5 | 9 | 0xd, 0xe) => func(&mut self.bus, false, false, 3, address),
-                (6 | 0xa | 0xe, 6) => func(&mut self.bus, false, false, 4, address),
-                (6 | 0xa | 0xe, 0xe) => func(&mut self.bus, false, false, 5, address),
-                (7 | 0xb | 0xf, 6) => func(&mut self.bus, false, false, 6, address),
-                (7 | 0xb | 0xf, 0xe) => func(&mut self.bus, false, false, 7, address),
-                _ => func(&mut self.bus, false, current_flag, 0, 0)
+                (4 | 8 | 0xc, 6) => func(&mut bus, false, false, 0, address),
+                (4 | 8 | 0xc, 0xe) => func(&mut bus, false, false, 1, address),
+                (5 | 9 | 0xd, 6) => func(&mut bus, false, false, 2, address),
+                (5 | 9 | 0xd, 0xe) => func(&mut bus, false, false, 3, address),
+                (6 | 0xa | 0xe, 6) => func(&mut bus, false, false, 4, address),
+                (6 | 0xa | 0xe, 0xe) => func(&mut bus, false, false, 5, address),
+                (7 | 0xb | 0xf, 6) => func(&mut bus, false, false, 6, address),
+                (7 | 0xb | 0xf, 0xe) => func(&mut bus, false, false, 7, address),
+                _ => func(&mut bus, false, current_flag, 0, 0)
             };
             match inst.0 {
                 4..=7 => { self._cycles(1) }
@@ -226,17 +284,17 @@ impl Cpu {
         } else {
             let func = match inst {
                 (0, 0..=5 | 7) => Register::rlc,
-                (0, 8..=0xc | 0xf) => Register::rrc,
+                (0, 8..=0xd | 0xf) => Register::rrc,
                 (1, 0..=5 | 7) => Register::rl,
-                (1, 8..=0xc | 0xf) => Register::rr,
+                (1, 8..=0xd | 0xf) => Register::rr,
                 (2, 0..=5 | 7) => Register::sla,
-                (2, 8..=0xc | 0xf) => Register::sra,
+                (2, 8..=0xd | 0xf) => Register::sra,
                 (3, 0..=5 | 7) => Register::swap,
-                (3, 8..=0xc | 0xf) => Register::srl,
-                (4..=7, 0..=0x5 | 0x7..=0xc | 0xf) => Register::bit,
-                (8..=0xb, 0..=0x5 | 0x7..=0xc | 0xf) => Register::reset,
-                (0xc..=0xf, 0..=0x5 | 0x7..=0xc | 0xf) => Register::setb,
-                _ => panic!("Should be impossible!")
+                (3, 8..=0xd | 0xf) => Register::srl,
+                (4..=7, 0..=0x5 | 0x7..=0xd | 0xf) => Register::bit,
+                (8..=0xb, 0..=0x5 | 0x7..=0xd | 0xf) => Register::reset,
+                (0xc..=0xf, 0..=0x5 | 0x7..=0xd | 0xf) => Register::setb,
+                _ => panic!("Should be impossible! {:#02x}", opcode)
             };
             let bit = match inst {
                 (4 | 8 | 0xc, ..=7) => 0,
@@ -277,9 +335,9 @@ impl Cpu {
         self._pc(2);
         true
     }
-    fn call(&mut self, inst: (u8, u8)) -> bool {
+    fn call(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         let new_pc = match inst {
-            (0xc..=0xd, 4 | 0xc) | (0xc, 0xd) => self.bus.get16(self.get_pc() + 1),
+            (0xc..=0xd, 4 | 0xc) | (0xc, 0xd) => bus.get16(self.get_pc() + 1),
             _ => return false
         };
         let condition = match inst {
@@ -291,14 +349,14 @@ impl Cpu {
         };
         self._pc(3);
         if condition {
-            self._push(self.get_pc());
+            self._push(self.get_pc(), &mut bus);
             self.set_pc(new_pc);
             self._cycles(3);
         }
         self._cycles(3);
         true
     }
-    fn ret(&mut self, inst: (u8, u8)) -> bool {
+    fn ret(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         let condition = match inst {
             (0xc, 0) => !self.get_flag_z(),
             (0xd, 0) => !self.get_flag_c(),
@@ -309,7 +367,7 @@ impl Cpu {
         };
         self._pc(1);
         if condition {
-            let new_pc = self._pop();
+            let new_pc = self._pop(&mut bus);
             self.set_pc(new_pc);
             if inst == (0xc, 0x9) {
                 self._cycles(4);
@@ -321,24 +379,24 @@ impl Cpu {
         }
         true
     }
-    fn reset(&mut self, inst: (u8, u8)) -> bool {
+    fn reset(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         let new_pc = match inst {
-            (0xc, 7) => self.bus.get16(0x0),
-            (0xc, 0xf) => self.bus.get16(0x8),
-            (0xd, 7) => self.bus.get16(0x10),
-            (0xd, 0xf) => self.bus.get16(0x18),
-            (0xe, 7) => self.bus.get16(0x20),
-            (0xe, 0xf) => self.bus.get16(0x28),
-            (0xf, 7) => self.bus.get16(0x30),
-            (0xf, 0xf) => self.bus.get16(0x38),
+            (0xc, 7) => bus.get16(0x0),
+            (0xc, 0xf) => bus.get16(0x8),
+            (0xd, 7) => bus.get16(0x10),
+            (0xd, 0xf) => bus.get16(0x18),
+            (0xe, 7) => bus.get16(0x20),
+            (0xe, 0xf) => bus.get16(0x28),
+            (0xf, 7) => bus.get16(0x30),
+            (0xf, 0xf) => bus.get16(0x38),
             _ => return false
         };
         self._pc(1);
-        self._push(self.get_pc());
+        self._push(self.get_pc(), &mut bus);
         self.set_pc(new_pc);
         true
     }
-    fn rotate(&mut self, inst: (u8, u8)) -> bool {
+    fn rotate(&mut self, inst: (u8, u8), _: &mut Bus) -> bool {
         let (z, n, h, c) = match inst {
             (0, 7) => self.a.rotate_left_a(true, false),
             (1, 7) => self.a.rotate_left_a(false, self.get_flag_c()),
@@ -354,15 +412,15 @@ impl Cpu {
         self._pc(1);
         true
     }
-    fn _pop(&mut self) -> u16 {
-        let val = self.bus.get16(self.get_sp());
+    fn _pop(&mut self, bus: &Bus) -> u16 {
+        let val = bus.get16(self.get_sp());
         self.inc16_sp();
         self.inc16_sp();
         val
     }
-    fn pop(&mut self, inst: (u8, u8)) -> bool {
+    fn pop(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         let val = match inst {
-            (0xc..=0xf, 1) => self._pop(),
+            (0xc..=0xf, 1) => self._pop(&mut bus),
             _ => return false
         };
 
@@ -377,12 +435,12 @@ impl Cpu {
         self._pc(1);
         true
     }
-    fn _push(&mut self, value: u16) {
-        self.bus.set16(self.get_sp() - 2, value);
+    fn _push(&mut self, value: u16, bus: &mut Bus) {
+        bus.set16(self.get_sp() - 2, value);
         self.dec16_sp();
         self.dec16_sp();
     }
-    fn push(&mut self, inst: (u8, u8)) -> bool {
+    fn push(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         let value = match inst {
             (0xc, 5) => self.get_bc(),
             (0xd, 5) => self.get_de(),
@@ -390,15 +448,15 @@ impl Cpu {
             (0xf, 5) => self.get_af(),
             _ => return false
         };
-        self._push(value);
+        self._push(value, &mut bus);
 
         self._cycles(4);
         self._pc(1);
         true
     }
-    fn load16(&mut self, inst: (u8, u8)) -> bool {
+    fn load16(&mut self, inst: (u8, u8), bus: &mut Bus) -> bool {
         let val: u16 = match inst {
-            (0..=3, 1) => self.bus.get16(self.get_pc() + 1),
+            (0..=3, 1) => bus.get16(self.get_pc() + 1),
             (0, 8) => self.get_sp(),
             (0xf, 9) => self.get_hl(),
             _ => return false
@@ -408,7 +466,7 @@ impl Cpu {
             (1, 1) => self.set_de(val),
             (2, 1) => self.set_hl(val),
             (3, 1) => self.set_sp(val),
-            (0, 8) => self.bus.set16(self.bus.get16(self.get_pc() + 1), val),
+            (0, 8) => bus.set16(bus.get16(self.get_pc() + 1), val),
             (0xf, 9) => self.set_sp(val),
             _ => panic!("Illegal instruction")
         }
@@ -428,7 +486,7 @@ impl Cpu {
         }
         true
     }
-    fn load(&mut self, inst: (u8, u8)) -> bool {
+    fn load(&mut self, inst: (u8, u8), bus: &mut Bus) -> bool {
         let val: u8 = match inst {
             (4..=7, 0x0 | 0x8) => self.b.get(),
             (4..=7, 0x1 | 0x9) => self.c.get(),
@@ -436,14 +494,14 @@ impl Cpu {
             (4..=7, 0x3 | 0xb) => self.e.get(),
             (4..=7, 0x4 | 0xc) => self.h.get(),
             (4..=7, 0x5 | 0xd) => self.l.get(),
-            (4..=7, 0x6 | 0xe) | (2..=3, 0xa) => self.bus.get(self.get_hl()),
+            (4..=7, 0x6 | 0xe) | (2..=3, 0xa) => bus.get(self.get_hl()),
             (4..=7, 0x7 | 0xf) | (0..=3, 0x2) | (0xe, 0 | 2 | 0xa) => self.a.get(),
-            (0x0, 0xa) => self.bus.get(self.get_bc()),
-            (0x1, 0xa) => self.bus.get(self.get_de()),
-            (0..=3, 0x6 | 0xe) => self.bus.get(self.get_pc() + 1),
-            (0xf, 0xa) => self.bus.get(self.bus.get16(self.get_pc() + 1)),
-            (0xf, 0) => self.bus.get(self.bus.get(self.get_pc() + 1) as u16 + 0xFF00),
-            (0xf, 2) => self.bus.get(self.c.get() as u16 + 0xFF00),
+            (0x0, 0xa) => bus.get(self.get_bc()),
+            (0x1, 0xa) => bus.get(self.get_de()),
+            (0..=3, 0x6 | 0xe) => bus.get(self.get_pc() + 1),
+            (0xf, 0xa) => bus.get(bus.get16(self.get_pc() + 1)),
+            (0xf, 0) => bus.get(bus.get(self.get_pc() + 1) as u16 + 0xFF00),
+            (0xf, 2) => bus.get(self.c.get() as u16 + 0xFF00),
             _ => return false
         };
         match inst {
@@ -453,13 +511,13 @@ impl Cpu {
             (0x5, 8..) | (1, 0xe) => self.e.set(val),
             (0x6, ..=7) | (2, 0x6) => self.h.set(val),
             (0x6, 8..) | (2, 0xe) => self.l.set(val),
-            (0x7, ..=5 | 7) | (2..=3, 0x2) | (3, 0x6) => self.bus.set(self.get_hl(), val),
+            (0x7, ..=5 | 7) | (2..=3, 0x2) | (3, 0x6) => bus.set(self.get_hl(), val),
             (0x7, 8..) | (0..=3, 0xa) | (3, 0xe) | (0xf, 0 | 2 | 0xa) => self.a.set(val),
-            (0x0, 0x2) => self.bus.set(self.get_bc(), val),
-            (0x1, 0x2) => self.bus.set(self.get_de(), val),
-            (0xe, 0xa) => self.bus.set(self.bus.get16(self.get_pc() + 1), val),
-            (0xe, 0) => self.bus.set(self.bus.get(self.get_pc() + 1) as u16 + 0xFF00, val),
-            (0xe, 2) => self.bus.set(self.c.get() as u16 + 0xFF00, val),
+            (0x0, 0x2) => bus.set(self.get_bc(), val),
+            (0x1, 0x2) => bus.set(self.get_de(), val),
+            (0xe, 0xa) => bus.set(bus.get16(self.get_pc() + 1), val),
+            (0xe, 0) => bus.set(bus.get(self.get_pc() + 1) as u16 + 0xFF00, val),
+            (0xe, 2) => bus.set(self.c.get() as u16 + 0xFF00, val),
             _ => return false
         };
         match inst {
@@ -491,7 +549,7 @@ impl Cpu {
         }
         true
     }
-    fn alu16(&mut self, inst: (u8, u8)) -> bool {
+    fn alu16(&mut self, inst: (u8, u8), _: &mut Bus) -> bool {
         let val = match inst {
             (0, 9) => self.get_bc(),
             (1, 9) => self.get_de(),
@@ -515,7 +573,7 @@ impl Cpu {
         self._pc(1);
         true
     }
-    fn alu(&mut self, inst: (u8, u8)) -> bool {
+    fn alu(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         let old_carry_flag = self.get_flag_c();
         let val = match inst {
             (8..=0xb, 0 | 0x8) => self.b.get(),
@@ -524,10 +582,10 @@ impl Cpu {
             (8..=0xb, 3 | 0xb) => self.e.get(),
             (8..=0xb, 4 | 0xc) => self.h.get(),
             (8..=0xb, 5 | 0xd) => self.l.get(),
-            (8..=0xb, 6 | 0xe) => self.bus.get(self.get_hl()),
+            (8..=0xb, 6 | 0xe) => bus.get(self.get_hl()),
             (8..=0xb, 7 | 0xf) => self.a.get(),
             (0..=3, 4 | 5 | 0xc | 0xd) => 0,
-            (0xc..=0xf, 6 | 0xe) => self.bus.get(self.get_pc() + 1),
+            (0xc..=0xf, 6 | 0xe) => bus.get(self.get_pc() + 1),
             _ => return false
         };
         let (z, n, h, c) = match inst {
@@ -545,8 +603,8 @@ impl Cpu {
             (1, 5) => self.d.dec(),
             (2, 4) => self.h.inc(),
             (2, 5) => self.h.dec(),
-            (3, 4) => self.inc_m(self.get_hl()),
-            (3, 5) => self.dec_m(self.get_hl()),
+            (3, 4) => self.inc_m(self.get_hl(), &mut bus),
+            (3, 5) => self.dec_m(self.get_hl(), &mut bus),
             (0, 0xc) => self.c.inc(),
             (0, 0xd) => self.c.dec(),
             (1, 0xc) => self.e.inc(),
@@ -580,7 +638,7 @@ impl Cpu {
         }
         true
     }
-    fn jump(&mut self, inst: (u8, u8)) -> bool {
+    fn jump(&mut self, inst: (u8, u8), bus: &mut Bus) -> bool {
         let condition = match inst {
             (2, 0) | (0xc, 2) => !self.get_flag_z(),
             (2, 8) | (0xc, 0xa) => self.get_flag_z(),
@@ -592,17 +650,17 @@ impl Cpu {
         if condition {
             match inst {
                 (2..=3, 0) | (1..=3, 8) => {
-                    self.set_pc(pc.wrapping_add_signed(self.bus.gets(pc + 1) as i16) + 2);
+                    self.set_pc(pc.wrapping_add_signed(bus.gets(pc + 1) as i16) + 2);
                     self._cycles(3);
-                },
+                }
                 (0xc..=0xd, 2) | (0xc..=0xd, 0xa) | (0xc, 0x3) => {
-                    self.set_pc(self.bus.get16(pc + 1));
+                    self.set_pc(bus.get16(pc + 1));
                     self._cycles(1)
-                },
+                }
                 (0xe, 0x9) => {
                     self.set_pc(self.get_hl());
                     self._cycles(1)
-                },
+                }
                 _ => return false
             }
         } else {
@@ -621,19 +679,22 @@ impl Cpu {
 #[cfg(test)]
 mod tests {
     use rand::Rng;
+    use crate::bus::Bus;
     use crate::cpu::Cpu;
 
     #[test]
     #[should_panic]
     fn not_implemented() {
         let mut cpu = Cpu::new();
-        cpu.bus.set(cpu.get_pc(), 0xe8);
-        cpu.step();
+        let mut bus = Bus::new();
+        bus.set(cpu.get_pc(), 0xe8);
+        cpu.step(&mut bus);
     }
 
     #[test]
     fn jump() {
         let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
         let mut rng = rand::thread_rng();
 
 
@@ -641,9 +702,9 @@ mod tests {
             let x1 = rng.gen_range(0..255);
             let y1 = rng.gen_range(0..0xFF00);
             cpu.set_pc(y1);
-            cpu.bus.set(y1 + 1, x1);
+            bus.set(y1 + 1, x1);
 
-            cpu.jump((0x1, 0x8));
+            cpu.jump((0x1, 0x8), &mut bus);
             assert_eq!(cpu.get_pc(), y1.wrapping_add_signed((x1 as i8) as i16) + 2);
         }
     }
@@ -651,6 +712,7 @@ mod tests {
     #[test]
     fn load() {
         let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
         let mut rng = rand::thread_rng();
 
         let x1 = rng.gen_range(0..255);
@@ -662,53 +724,54 @@ mod tests {
         cpu.c.set(x1);
         cpu.d.set(x2);
 
-        cpu.load((0x5, 0x1));
+        cpu.load((0x5, 0x1), &mut bus);
         assert_eq!(cpu.c.get(), x1);
         assert_eq!(cpu.d.get(), x1);
 
         cpu.set_hl(x5);
         cpu.a.set(x3);
 
-        cpu.load((0x2, 0x2));
-        assert_eq!(cpu.bus.get(x5), x3);
+        cpu.load((0x2, 0x2), &mut bus);
+        assert_eq!(bus.get(x5), x3);
 
         cpu.b.set(x4);
-        cpu.load((0x7, 0x0));
-        assert_eq!(cpu.bus.get(x5 + 1), x4);
+        cpu.load((0x7, 0x0), &mut bus);
+        assert_eq!(bus.get(x5 + 1), x4);
 
         cpu.set_bc(x5 + 1);
-        cpu.load((0x0, 0xa));
+        cpu.load((0x0, 0xa), &mut bus);
         assert_eq!(cpu.a.get(), x4);
 
-        cpu.bus.set(cpu.get_pc() + 1, x1);
-        cpu.load((1, 0xe));
+        bus.set(cpu.get_pc() + 1, x1);
+        cpu.load((1, 0xe), &mut bus);
         assert_eq!(cpu.e.get(), x1);
     }
 
     #[test]
     fn rotate_a() {
         let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
 
         let x1 = 0b01010101;
         let x2 = 0b10101010;
 
         cpu.a.set(x1);
-        cpu.rotate((0, 7));
+        cpu.rotate((0, 7), &mut bus);
         assert_eq!(cpu.a.get(), x2);
         assert_eq!(cpu.get_flag_c(), false);
 
         cpu.a.set(x1);
-        cpu.rotate((0, 0xf));
+        cpu.rotate((0, 0xf), &mut bus);
         assert_eq!(cpu.a.get(), x2);
         assert_eq!(cpu.get_flag_c(), true);
 
         cpu.a.set(x2);
-        cpu.rotate((0, 7));
+        cpu.rotate((0, 7), &mut bus);
         assert_eq!(cpu.a.get(), x1);
         assert_eq!(cpu.get_flag_c(), true);
 
         cpu.a.set(x2);
-        cpu.rotate((0, 0xf));
+        cpu.rotate((0, 0xf), &mut bus);
         assert_eq!(cpu.a.get(), x1);
         assert_eq!(cpu.get_flag_c(), false);
     }
@@ -716,9 +779,9 @@ mod tests {
     #[test]
     fn alu() {
         let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
         let mut rng = rand::thread_rng();
 
-        let s1 = rng.gen_range(0..=7);
         let s2 = rng.gen_range(8..=15);
         let x1 = rng.gen_range(0..=255);
         let x2 = rng.gen_range(0..=255);
@@ -730,83 +793,83 @@ mod tests {
         cpu.a.set(x1);
         cpu.d.set(x2);
         cpu.set_hl(y1);
-        cpu.bus.set(y1, x3);
+        bus.set(y1, x3);
 
-        cpu.alu((0x8, 0x2));
+        cpu.alu((0x8, 0x2), &mut bus);
         assert_eq!(cpu.a.get(), x1.wrapping_add(x2));
 
         cpu.a.set(x1);
-        cpu.alu((0x8, 0x6));
+        cpu.alu((0x8, 0x6), &mut bus);
         assert_eq!(cpu.a.get(), x1.wrapping_add(x3));
 
         cpu.a.set(x1);
-        cpu.alu((0x9, 0x2));
+        cpu.alu((0x9, 0x2), &mut bus);
         assert_eq!(cpu.a.get(), x1.wrapping_sub(x2));
 
         cpu.a.set(x1);
-        cpu.alu((0x9, 0x6));
+        cpu.alu((0x9, 0x6), &mut bus);
         assert_eq!(cpu.a.get(), x1.wrapping_sub(x3));
 
         cpu.a.set(x1);
         cpu.set_flag_c(false);
-        cpu.alu((0x8, 0xa));
+        cpu.alu((0x8, 0xa), &mut bus);
         assert_eq!(cpu.a.get(), x1.wrapping_add(x2));
 
         cpu.a.set(x1);
         cpu.set_flag_c(true);
-        cpu.alu((0x8, 0xe));
+        cpu.alu((0x8, 0xe), &mut bus);
         assert_eq!(cpu.a.get(), x1.wrapping_add(x3 + 1));
 
         cpu.a.set(x1);
         cpu.set_flag_c(false);
-        cpu.alu((0x9, 0xa));
+        cpu.alu((0x9, 0xa), &mut bus);
         assert_eq!(cpu.a.get(), x1.wrapping_sub(x2));
 
         cpu.a.set(x1);
         cpu.set_flag_c(true);
-        cpu.alu((0x9, 0xe));
+        cpu.alu((0x9, 0xe), &mut bus);
         assert_eq!(cpu.a.get(), x1.wrapping_sub(x3 + 1));
 
         cpu.a.set(x1);
-        cpu.alu((0xa, 0x2));
+        cpu.alu((0xa, 0x2), &mut bus);
         assert_eq!(cpu.a.get(), x1 & x2);
 
         cpu.a.set(x1);
-        cpu.alu((0xa, 0x6));
+        cpu.alu((0xa, 0x6), &mut bus);
         assert_eq!(cpu.a.get(), x1 & x3);
 
         cpu.a.set(x1);
-        cpu.alu((0xb, 0x2));
+        cpu.alu((0xb, 0x2), &mut bus);
         assert_eq!(cpu.a.get(), x1 | x2);
 
         cpu.a.set(x1);
-        cpu.alu((0xb, 0x6));
+        cpu.alu((0xb, 0x6), &mut bus);
         assert_eq!(cpu.a.get(), x1 | x3);
 
         cpu.a.set(x1);
-        cpu.alu((0xa, 0xa));
+        cpu.alu((0xa, 0xa), &mut bus);
         assert_eq!(cpu.a.get(), x1 ^ x2);
 
         cpu.a.set(x1);
-        cpu.alu((0xa, 0xe));
+        cpu.alu((0xa, 0xe), &mut bus);
         assert_eq!(cpu.a.get(), x1 ^ x3);
 
         cpu.a.set(x4);
         cpu.b.set(x5);
-        cpu.alu((0x9, 0));
+        cpu.alu((0x9, 0), &mut bus);
         assert_eq!(cpu.get_flag_c(), true);
         assert_eq!(cpu.get_flag_n(), true);
         assert_eq!(cpu.get_flag_z(), x4 == x5);
 
         cpu.a.set(x4);
         cpu.b.set(x4);
-        cpu.alu((0xb, 0x8));
+        cpu.alu((0xb, 0x8), &mut bus);
         assert_eq!(cpu.get_flag_n(), true);
         assert_eq!(cpu.get_flag_z(), true);
 
         cpu.a.set(s2);
         cpu.b.set(s2);
-        cpu.alu((0x8, 0));
+        cpu.alu((0x8, 0), &mut bus);
         assert_eq!(cpu.get_flag_n(), false);
         assert_eq!(cpu.get_flag_h(), true);
     }
@@ -814,23 +877,24 @@ mod tests {
     #[test]
     fn inc() {
         let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
 
         let x1 = 0x1;
         let x2 = 0xff;
         let x3 = 0x0f;
 
         cpu.c.set(x1);
-        cpu.alu((0, 0xc));
+        cpu.alu((0, 0xc), &mut bus);
         assert_eq!(cpu.get_flag_z(), false);
         assert_eq!(cpu.get_flag_n(), false);
 
         cpu.c.set(x2);
-        cpu.alu((0, 0xc));
+        cpu.alu((0, 0xc), &mut bus);
         assert_eq!(cpu.get_flag_z(), true);
         assert_eq!(cpu.get_flag_n(), false);
 
         cpu.c.set(x3);
-        cpu.alu((0, 0xc));
+        cpu.alu((0, 0xc), &mut bus);
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_flag_n(), false);
     }
@@ -838,23 +902,24 @@ mod tests {
     #[test]
     fn dec() {
         let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
 
         let x1 = 0x1;
         let x2 = 0xff;
         let x3 = 0x00;
 
         cpu.c.set(x2);
-        cpu.alu((0, 0xd));
+        cpu.alu((0, 0xd), &mut bus);
         assert_eq!(cpu.get_flag_z(), false);
         assert_eq!(cpu.get_flag_n(), true);
 
         cpu.c.set(x1);
-        cpu.alu((0, 0xd));
+        cpu.alu((0, 0xd), &mut bus);
         assert_eq!(cpu.get_flag_z(), true);
         assert_eq!(cpu.get_flag_n(), true);
 
         cpu.c.set(x3);
-        cpu.alu((0, 0xd));
+        cpu.alu((0, 0xd), &mut bus);
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_flag_n(), true);
     }
@@ -862,6 +927,7 @@ mod tests {
     #[test]
     fn stack() {
         let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
         let mut rng = rand::thread_rng();
 
         let x1 = rng.gen_range(0..=255);
@@ -870,25 +936,25 @@ mod tests {
         let y2 = rng.gen_range(0..=0xFFFF);
 
         cpu.set_bc(y1);
-        cpu.push((0xc, 5));
-        cpu.pop((0xd, 1));
+        cpu.push((0xc, 5), &mut bus);
+        cpu.pop((0xd, 1), &mut bus);
         assert_eq!(cpu.get_de(), y1);
 
         cpu.set_bc(y1);
-        cpu.push((0xc, 5));
+        cpu.push((0xc, 5), &mut bus);
         cpu.set_bc(x1);
-        cpu.push((0xc, 5));
+        cpu.push((0xc, 5), &mut bus);
         cpu.set_bc(y2);
-        cpu.push((0xc, 5));
+        cpu.push((0xc, 5), &mut bus);
         cpu.set_bc(x2);
-        cpu.push((0xc, 5));
-        cpu.pop((0xd, 1));
+        cpu.push((0xc, 5), &mut bus);
+        cpu.pop((0xd, 1), &mut bus);
         assert_eq!(cpu.get_de(), x2);
-        cpu.pop((0xd, 1));
+        cpu.pop((0xd, 1), &mut bus);
         assert_eq!(cpu.get_de(), y2);
-        cpu.pop((0xd, 1));
+        cpu.pop((0xd, 1), &mut bus);
         assert_eq!(cpu.get_de(), x1);
-        cpu.pop((0xd, 1));
+        cpu.pop((0xd, 1), &mut bus);
         assert_eq!(cpu.get_de(), y1);
     }
 }

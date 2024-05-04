@@ -1,5 +1,5 @@
 fp1 = open("out.txt", "r", encoding="utf-16")
-fp2 = open("EpicLog.txt", "r")
+fp2 = open("Blargg5.txt", "r")
 
 lines1 = fp1.readlines()
 lines2 = fp2.readlines()

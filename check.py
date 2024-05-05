@@ -1,12 +1,12 @@
 fp1 = open("out.txt", "r", encoding="utf-16")
-fp2 = open("Blargg5.txt", "r")
+fp2 = open("Blargg9.txt", "r")
 
 lines1 = fp1.readlines()
 lines2 = fp2.readlines()
 
 print(lines1[:10])
 for i in range(len(lines2)):
-    if lines1[i] != lines2[i]:
+    if lines1[i][:] != lines2[i][:]:
         print("Found different at line %s" % i)
         print("Your line    : %s" % str(lines1[i]))
         print("Correcct line: %s" % str(lines2[i]))

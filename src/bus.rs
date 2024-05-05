@@ -48,6 +48,7 @@ impl Bus {
     pub fn get(&self, address: u16) -> u8 {
         match address {
             //0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
+            0xFF44 => 0x90,
             _ => self.memory.get(address)
         }
     }
@@ -61,6 +62,7 @@ impl Bus {
     }
     pub fn set(&mut self, address: u16, value: u8) {
         match address {
+            ..=ROM_N_END => panic!("READ-ONLY memory!!!"),
             0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
             _ => self.memory.set(address, value)
         }

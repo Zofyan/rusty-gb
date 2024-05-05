@@ -69,7 +69,7 @@ impl Fetcher  {
             for i in (0..=7).rev() {
                 bus.fifo.push(self.pixel_data[i]);
             }
-            self.tile_index.overflowing_add(1);
+            (self.tile_index, _) = self.tile_index.overflowing_add(1);
             self.state = ReadTileID;
         }
     }

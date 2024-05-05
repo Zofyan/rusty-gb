@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::time;
+use std::{io, time};
 use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::fetcher::Fetcher;
@@ -34,23 +34,35 @@ impl Emulator {
         }
         bus.load_rom(buffer);
 
+        bus.set_int_enable_lcd(true);
+        bus.set_int_enable_joypad(true);
+        bus.set_int_enable_serial(true);
+        bus.set_int_enable_vblank(true);
+        bus.set_int_enable_timer(true);
+        bus.set_int_request_lcd(false);
+        bus.set_int_request_joypad(false);
+        bus.set_int_request_serial(false);
+        bus.set_int_request_vblank(false);
+        bus.set_int_request_timer(false);
+
         Emulator { cpu, bus, fetcher, ppu, output }
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
         let ten_millis = time::Duration::from_millis(20);
+        let mut count : usize = 0;
         loop {
             let cycles = match self.cpu.get_ime() {
                 true => {
                     if self.bus.get_int_enable_vblank() && self.bus.get_int_request_vblank() {
                         self.cpu.interrupt(&mut self.bus, 0x40)
-                    } else if self.bus.get_int_enable_lcd() && self.bus.get_int_enable_lcd() {
+                    } else if self.bus.get_int_enable_lcd() && self.bus.get_int_request_lcd() {
                         self.cpu.interrupt(&mut self.bus, 0x48)
-                    } else if self.bus.get_int_enable_timer() && self.bus.get_int_enable_timer() {
+                    } else if self.bus.get_int_enable_timer() && self.bus.get_int_request_timer() {
                         self.cpu.interrupt(&mut self.bus, 0x50)
-                    } else if self.bus.get_int_enable_serial() && self.bus.get_int_enable_serial() {
+                    } else if self.bus.get_int_enable_serial() && self.bus.get_int_request_serial() {
                         self.cpu.interrupt(&mut self.bus, 0x58)
-                    } else if self.bus.get_int_enable_joypad() && self.bus.get_int_enable_joypad() {
+                    } else if self.bus.get_int_enable_joypad() && self.bus.get_int_request_joypad() {
                         self.cpu.interrupt(&mut self.bus, 0x60)
                     } else {
                         self.cpu.step(&mut self.bus)
@@ -63,11 +75,15 @@ impl Emulator {
                 self.ppu = self.ppu.execute(&mut self.bus, &mut self.fetcher, &self.output);
             }
 
-            if self.bus.get(0xFF02) > 0 {
-                //print!("{}", self.bus.get(0xFF01) as char);
+            if self.bus.get(0xFF02) == 0x81 {
+                write!(stdout, "{}", self.bus.get(0xFF01) as char).expect("Couldn't write");
                 self.bus.set(0xFF02, 0);
             }
             //thread::sleep(ten_millis);
+            count += 1;
+            if count > max_cycles && max_cycles != 0 {
+                break;
+            }
         }
     }
 }

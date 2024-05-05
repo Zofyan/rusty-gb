@@ -48,8 +48,7 @@ impl Cpu {
         )
     }
     pub fn step(&mut self, mut bus: &mut Bus) -> usize {
-        self.log(&bus);
-        let old_counter = self.counter;
+        //self.log(&bus);
         let opcode = bus.get(self.get_pc());
         let inst = (opcode >> 4, opcode & 0xF);
         //println!("Executing {:#02x}({:#01x}, {:#01x}) at {:#02x}", opcode, inst.0, inst.1, self.get_pc());
@@ -71,7 +70,7 @@ impl Cpu {
         //if self.counter % 100 == 0 {
         //    println!("{}", self.counter);
         //}
-        let cycles = self.counter - old_counter;
+        let cycles = self.counter;
         self.counter = 0;
         cycles
     }
@@ -86,6 +85,7 @@ impl Cpu {
         self._cycles(2);
         self.set_pc(address);
         self._cycles(1);
+        self.set_ime(false);
         5
     }
     fn get_flag_c(&self) -> bool {
@@ -155,7 +155,7 @@ impl Cpu {
     }
     fn arithmetic_flags16(&self, base: u16, value: u16, func: fn(u16, u16) -> (u16, bool)) -> (u16, bool, bool) {
         let (val, c) = func(self.get_hl(), value);
-        let (_, h) = func(base << 8, value << 8);
+        let (_, h) = func(base << 4, value << 4);
         (val, c, h)
     }
     fn add16(&mut self, value: u16) {
@@ -186,7 +186,7 @@ impl Cpu {
     fn set_ime(&mut self, value: bool) {
         self.ime = value
     }
-    pub(crate) fn get_ime(&mut self) -> bool {
+    pub fn get_ime(&mut self) -> bool {
         self.ime
     }
     fn misc(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
@@ -308,15 +308,16 @@ impl Cpu {
                 _ => 0
             };
             (z, n, h, c) = match inst {
-                (0 | 0x8, _) => func(&mut self.b, false, current_flag, bit, 0),
-                (1 | 0x9, _) => func(&mut self.c, false, current_flag, bit, 0),
-                (2 | 0xa, _) => func(&mut self.d, false, current_flag, bit, 0),
-                (3 | 0xb, _) => func(&mut self.e, false, current_flag, bit, 0),
-                (4 | 0xc, _) => func(&mut self.h, false, current_flag, bit, 0),
-                (5 | 0xd, _) => func(&mut self.l, false, current_flag, bit, 0),
-                (7 | 0xf, _) => func(&mut self.a, false, current_flag, bit, 0),
+                (_, 0 | 0x8) => func(&mut self.b, false, current_flag, bit, 0),
+                (_, 1 | 0x9) => func(&mut self.c, false, current_flag, bit, 0),
+                (_, 2 | 0xa) => func(&mut self.d, false, current_flag, bit, 0),
+                (_, 3 | 0xb) => func(&mut self.e, false, current_flag, bit, 0),
+                (_, 4 | 0xc) => func(&mut self.h, false, current_flag, bit, 0),
+                (_, 5 | 0xd) => func(&mut self.l, false, current_flag, bit, 0),
+                (_, 7 | 0xf) => func(&mut self.a, false, current_flag, bit, 0),
                 _ => panic!("Unknown register")
             };
+            self._cycles(2)
         }
         match inst.0 {
             ..=3 => {
@@ -392,6 +393,7 @@ impl Cpu {
             _ => return false
         };
         self._pc(1);
+        self._cycles(4);
         self._push(self.get_pc(), &mut bus);
         self.set_pc(new_pc);
         true
@@ -500,7 +502,9 @@ impl Cpu {
             (0x1, 0xa) => bus.get(self.get_de()),
             (0..=3, 0x6 | 0xe) => bus.get(self.get_pc() + 1),
             (0xf, 0xa) => bus.get(bus.get16(self.get_pc() + 1)),
-            (0xf, 0) => bus.get(bus.get(self.get_pc() + 1) as u16 + 0xFF00),
+            (0xf, 0) => {
+                bus.get(bus.get(self.get_pc() + 1) as u16 + 0xFF00)
+            }
             (0xf, 2) => bus.get(self.c.get() as u16 + 0xFF00),
             _ => return false
         };
@@ -631,6 +635,10 @@ impl Cpu {
                 self._cycles(2);
                 self._pc(1)
             }
+            (3, 4 | 5) => {
+                self._cycles(3);
+                self._pc(1)
+            }
             _ => {
                 self._cycles(1);
                 self._pc(1)
@@ -679,17 +687,8 @@ impl Cpu {
 #[cfg(test)]
 mod tests {
     use rand::Rng;
-    use crate::bus::Bus;
+    use crate::bus::{Bus, ROM_N_END};
     use crate::cpu::Cpu;
-
-    #[test]
-    #[should_panic]
-    fn not_implemented() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
-        bus.set(cpu.get_pc(), 0xe8);
-        cpu.step(&mut bus);
-    }
 
     #[test]
     fn jump() {
@@ -700,7 +699,7 @@ mod tests {
 
         for _ in [..=30] {
             let x1 = rng.gen_range(0..255);
-            let y1 = rng.gen_range(0..0xFF00);
+            let y1 = rng.gen_range(ROM_N_END..0xC000);
             cpu.set_pc(y1);
             bus.set(y1 + 1, x1);
 
@@ -719,7 +718,7 @@ mod tests {
         let x2 = rng.gen_range(0..255);
         let x3 = rng.gen_range(0..255);
         let x4 = rng.gen_range(0..255);
-        let x5 = rng.gen_range(0..0xFFF);
+        let x5 = rng.gen_range(ROM_N_END..=0xC000);
 
         cpu.c.set(x1);
         cpu.d.set(x2);
@@ -742,38 +741,21 @@ mod tests {
         cpu.load((0x0, 0xa), &mut bus);
         assert_eq!(cpu.a.get(), x4);
 
+        cpu.set_pc(x5);
         bus.set(cpu.get_pc() + 1, x1);
         cpu.load((1, 0xe), &mut bus);
         assert_eq!(cpu.e.get(), x1);
     }
 
     #[test]
-    fn rotate_a() {
+    fn alu16(){
         let mut cpu = Cpu::new();
         let mut bus = Bus::new();
 
-        let x1 = 0b01010101;
-        let x2 = 0b10101010;
-
-        cpu.a.set(x1);
-        cpu.rotate((0, 7), &mut bus);
-        assert_eq!(cpu.a.get(), x2);
-        assert_eq!(cpu.get_flag_c(), false);
-
-        cpu.a.set(x1);
-        cpu.rotate((0, 0xf), &mut bus);
-        assert_eq!(cpu.a.get(), x2);
-        assert_eq!(cpu.get_flag_c(), true);
-
-        cpu.a.set(x2);
-        cpu.rotate((0, 7), &mut bus);
-        assert_eq!(cpu.a.get(), x1);
-        assert_eq!(cpu.get_flag_c(), true);
-
-        cpu.a.set(x2);
-        cpu.rotate((0, 0xf), &mut bus);
-        assert_eq!(cpu.a.get(), x1);
-        assert_eq!(cpu.get_flag_c(), false);
+        cpu.set_hl(0x4C00);
+        cpu.alu16((0x2, 0x9), &mut bus);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_hl(), 0x9800);
     }
 
     #[test]
@@ -788,7 +770,7 @@ mod tests {
         let x3 = rng.gen_range(0..=255);
         let x4 = rng.gen_range(0..=127);
         let x5 = rng.gen_range(128..=255);
-        let y1 = rng.gen_range(0..=0xFFF);
+        let y1 = rng.gen_range(ROM_N_END..=0xC000);
 
         cpu.a.set(x1);
         cpu.d.set(x2);

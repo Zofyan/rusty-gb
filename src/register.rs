@@ -18,13 +18,13 @@ impl Register {
         self.value.set_bit(bit, value)
     }
 
-    pub(crate) fn arithmetic_flags(&self, base: u8, value: u8, func: fn(u8, u8) -> (u8, bool), carry: bool, carry_value: bool) -> (u8, bool, bool){
+    pub fn arithmetic_flags(&self, base: u8, value: u8, func: fn(u8, u8) -> (u8, bool), carry: bool, carry_value: bool) -> (u8, bool, bool){
         let (mut c2, mut h2) = (false, false);
         let (mut val, c) = func(base, value);
         let (_, h) = func(base << 4, value << 4);
         if carry{
-            (val, c2) = func(val, carry_value as u8);
             (_, h2) = func(val << 4, (carry_value as u8) << 4);
+            (val, c2) = func(val, carry_value as u8);
         }
         (val, c | c2, h | h2)
     }
@@ -45,36 +45,48 @@ impl Register {
         (val == 0, true, h, c)
     }
     pub fn rotate_left_a(&mut self, carry: bool, carry_value: bool) -> (bool, bool, bool, bool) {
+        let c = self.value.bit(7);
+        self.value <<= 1;
         if !carry {
             self.value.set_bit(0, carry_value)
+        } else{
+            self.value.set_bit(0, c);
         }
-        self.value = self.value.rotate_left(1);
-        (false, false, false, self.value.bit(0))
+        (false, false, false, c)
     }
     pub fn rotate_right_a(&mut self, carry: bool, carry_value: bool) -> (bool, bool, bool, bool) {
+        let c = self.value.bit(0);
+        self.value >>= 1;
         if !carry {
             self.value.set_bit(7, carry_value)
+        } else{
+            self.value.set_bit(7, c);
         }
-        self.value = self.value.rotate_right(1);
-        (false, false, false, self.value.bit(7))
+        (false, false, false, c)
     }
     pub fn rl(&mut self, _: bool, carry_value: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        let c = self.value.bit(7);
+        self.value <<= 1;
         self.value.set_bit(0, carry_value);
-        self.value = self.value.rotate_left(1);
-        (self.value == 0, false, false, self.value.bit(0))
+        (self.value == 0, false, false, c)
     }
     pub fn rlc(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
-        self.value = self.value.rotate_left(1);
-        (self.value == 0, false, false, self.value.bit(0))
+        let c = self.value.bit(7);
+        self.value <<= 1;
+        self.value.set_bit(0, c);
+        (self.value == 0, false, false, c)
     }
     pub fn rr(&mut self, _: bool, carry_value: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
+        let c = self.value.bit(0);
+        self.value >>= 1;
         self.value.set_bit(7, carry_value);
-        self.value = self.value.rotate_right(1);
-        (self.value == 0, false, false, self.value.bit(7))
+        (self.value == 0, false, false, c)
     }
     pub fn rrc(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
-        self.value = self.value.rotate_right(1);
-        (self.value == 0, false, false, self.value.bit(7))
+        let c = self.value.bit(0);
+        self.value >>= 1;
+        self.value.set_bit(7, c);
+        (self.value == 0, false, false, c)
     }
     pub fn sla(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
         let c= self.get_bit(7);
@@ -88,7 +100,9 @@ impl Register {
     }
     pub fn sra(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
         let c= self.get_bit(0);
-        self.value = (self.value >> 1) | self.value;
+        let bit7= self.get_bit(7);
+        self.value >>= 1;
+        self.value.set_bit(7, bit7);
         (self.value == 0, false, false, c)
     }
     pub fn swap(&mut self, _: bool, _: bool, _: usize, _: u16) -> (bool, bool, bool, bool) {
@@ -127,26 +141,78 @@ impl Register {
         (val == 0, true, h, c)
     }
 }
-/*
+
 #[cfg(test)]
 mod tests {
-    use crate::register::{Register, Registers};
+    use crate::register::{Register};
 
     #[test]
-    fn basic() {
-        let mut reg = Registers { a: Register {value:0}, b: 0, c: 0, d: 0, e: 0, f: 0, h: 0, l: 0, sp: 0, pc: 0 };
+    fn rlca() {
+        let mut reg = Register { value: 0x80 };
 
-        assert_eq!(reg.get_d(), 0);
-        reg.set_d(34);
-        assert_eq!(reg.get_d(), 34);
-
-        reg.set_b(255);
-        reg.set_c(255);
-        assert_ne!(reg.get_bc(), (2u32.pow(16) - 2) as u16);
-        assert_eq!(reg.get_bc(), (2u32.pow(16) - 1) as u16);
-
-        reg.set_h(165);
-        reg.set_l(98);
-        assert_eq!(reg.get_hl(), (165 << 8) | 98);
+        let (z, n, h, c) = reg.rotate_left_a(true, false);
+        assert_eq!(z, false);
+        assert_eq!(h, false);
+        assert_eq!(c, true);
+        assert_eq!(reg.value, 0x01);
     }
-}*/
+    #[test]
+    fn rlc() {
+        let mut reg = Register { value: 0x80 };
+
+        let (z, n, h, c) = reg.rlc(false, false, 0, 0);
+        assert_eq!(z, false);
+        assert_eq!(h, false);
+        assert_eq!(c, true);
+        assert_eq!(reg.value, 0x01);
+    }
+    #[test]
+    fn sra() {
+        let mut reg = Register { value: 0x01 };
+
+        let (z, n, h, c) = reg.sra(false, false, 0, 0);
+        assert_eq!(z, true);
+        assert_eq!(h, false);
+        assert_eq!(c, true);
+        assert_eq!(reg.value, 0x00);
+    }
+    #[test]
+    fn add() {
+        let mut reg = Register { value: 0xFE };
+
+        let (z, n, h, c) = reg.add(01, true, true);
+        assert_eq!(z, true);
+        assert_eq!(h, true);
+        assert_eq!(c, true);
+        assert_eq!(reg.value, 0);
+    }
+    #[test]
+    fn rr() {
+        let mut reg = Register { value: 0 };
+
+        reg.value = 0x7C;
+
+        let (z, n, h, c) = reg.rr(false, true, 0, 0);
+        assert_eq!(c, false);
+        assert_eq!(reg.value, 0xBE);
+
+        reg.value = 0x3D;
+
+        let (z, n, h, c) = reg.rr(false, true, 0, 0);
+        assert_eq!(c, true);
+        assert_eq!(reg.value, 0x9E);
+
+        reg.value = 0xFF;
+
+        let (z, n, h, c) = reg.rr(false, true, 0, 0);
+        assert_eq!(c, true);
+        assert_eq!(reg.value, 0xFF);
+
+        reg.value = 0x47;
+
+        let (z, n, h, c) = reg.rr(false, false, 0, 0);
+        assert_eq!(c, true);
+        assert_eq!(reg.value, 0x23);
+
+    }
+}

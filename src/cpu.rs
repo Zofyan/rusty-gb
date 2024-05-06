@@ -48,7 +48,7 @@ impl Cpu {
         )
     }
     pub fn step(&mut self, mut bus: &mut Bus) -> usize {
-        //self.log(&bus);
+        self.log(&bus);
         let opcode = bus.get(self.get_pc());
         let inst = (opcode >> 4, opcode & 0xF);
         //println!("Executing {:#02x}({:#01x}, {:#01x}) at {:#02x}", opcode, inst.0, inst.1, self.get_pc());
@@ -70,8 +70,8 @@ impl Cpu {
         //if self.counter % 100 == 0 {
         //    println!("{}", self.counter);
         //}
-        let cycles = self.counter;
-        self.counter = 0;
+        let cycles = 1;
+        //self.counter = 0;
         cycles
     }
 
@@ -136,10 +136,9 @@ impl Cpu {
     fn set_pc(&mut self, value: u16) {
         self.pc = value
     }
-
     fn set_af(&mut self, value: u16) {
         self.a.set((value >> 8) as u8);
-        self.f.set(value as u8)
+        self.f.set(value as u8 & 0xF0)
     }
     fn set_bc(&mut self, value: u16) {
         self.b.set((value >> 8) as u8);
@@ -211,8 +210,9 @@ impl Cpu {
                 self.set_flag_h(false);
             }
             (0xe, 0x8) => {
-                let (val, c) = self.get_sp().overflowing_add_signed(bus.gets(self.get_pc() + 1) as i16);
-                let (_, h) = (self.get_sp() as u8).overflowing_add_signed(bus.gets(self.get_pc() + 1));
+                let (val, _) = self.get_sp().overflowing_add_signed(bus.gets(self.get_pc() + 1) as i16);
+                let (_, c) = (self.get_sp() << 8).overflowing_add((bus.get(self.get_pc() + 1) as u16) << 8);
+                let (_, h) = (self.get_sp() << 12).overflowing_add((bus.get(self.get_pc() + 1) as u16) << 12);
                 self.set_sp(val);
                 self.set_flag_c(c);
                 self.set_flag_h(h);
@@ -222,8 +222,9 @@ impl Cpu {
                 self._pc(1);
             }
             (0xf, 0x8) => {
-                let (val, c) = self.get_sp().overflowing_add_signed(bus.gets(self.get_pc() + 1) as i16);
-                let (_, h) = (self.get_sp() as u8).overflowing_add_signed(bus.gets(self.get_pc() + 1));
+                let (val, _) = self.get_sp().overflowing_add_signed(bus.gets(self.get_pc() + 1) as i16);
+                let (_, c) = (self.get_sp() << 8).overflowing_add((bus.get(self.get_pc() + 1) as u16) << 8);
+                let (_, h) = (self.get_sp() << 12).overflowing_add((bus.get(self.get_pc() + 1) as u16) << 12);
                 self.set_hl(val);
                 self.set_flag_c(c);
                 self.set_flag_h(h);
@@ -232,9 +233,23 @@ impl Cpu {
                 self._cycles(2);
                 self._pc(1);
             }
+            (0x2, 0x7) => {
+                if (!self.get_flag_n()) {  // after an addition, adjust if (half-)carry occurred or if result is out of bounds
+                  if (self.get_flag_c() || self.a.get() > 0x99) { self.a.add(0x60, false, false); self.set_flag_c(true); }
+                  if (self.get_flag_h() || (self.a.get() & 0x0f) > 0x09) { self.a.add(0x6, false, false); }
+                } else {  // after a subtraction, only adjust if (half-)carry occurred
+                  if (self.get_flag_c()) { self.a.sub(0x60, false, false); }
+                  if (self.get_flag_h()) { self.a.sub(0x6, false, false); }
+                }
+                // these flags are always updated
+                self.set_flag_z(self.a.get() == 0); // the usual z flag
+                self.set_flag_h(false);
+            }
             (0xd, 0x9) => {
                 self.set_ime(true);
-                self.call((0xc, 0x9), &mut bus);
+                self.ret((0xc, 0x9), &mut bus);
+                self._cycles(1);
+                return true
             }
             _ => return false
         }
@@ -275,7 +290,7 @@ impl Cpu {
                 (6 | 0xa | 0xe, 0xe) => func(&mut bus, false, false, 5, address),
                 (7 | 0xb | 0xf, 6) => func(&mut bus, false, false, 6, address),
                 (7 | 0xb | 0xf, 0xe) => func(&mut bus, false, false, 7, address),
-                _ => func(&mut bus, false, current_flag, 0, 0)
+                _ => func(&mut bus, false, current_flag, 0, address)
             };
             match inst.0 {
                 4..=7 => { self._cycles(1) }
@@ -467,9 +482,8 @@ impl Cpu {
             (0, 1) => self.set_bc(val),
             (1, 1) => self.set_de(val),
             (2, 1) => self.set_hl(val),
-            (3, 1) => self.set_sp(val),
+            (3, 1) | (0xf, 9) => self.set_sp(val),
             (0, 8) => bus.set16(bus.get16(self.get_pc() + 1), val),
-            (0xf, 9) => self.set_sp(val),
             _ => panic!("Illegal instruction")
         }
         match inst {
@@ -652,18 +666,19 @@ impl Cpu {
             (2, 8) | (0xc, 0xa) => self.get_flag_z(),
             (3, 0) | (0xd, 2) => !self.get_flag_c(),
             (3, 8) | (0xd, 0xa) => self.get_flag_c(),
-            _ => true
+            (1, 8) | (0xc, 3) | (0xe, 9) => true,
+            _ => return false
         };
         let pc = self.get_pc();
         if condition {
             match inst {
                 (2..=3, 0) | (1..=3, 8) => {
                     self.set_pc(pc.wrapping_add_signed(bus.gets(pc + 1) as i16) + 2);
-                    self._cycles(3);
+                    self._cycles(3)
                 }
                 (0xc..=0xd, 2) | (0xc..=0xd, 0xa) | (0xc, 0x3) => {
                     self.set_pc(bus.get16(pc + 1));
-                    self._cycles(1)
+                    self._cycles(3)
                 }
                 (0xe, 0x9) => {
                     self.set_pc(self.get_hl());
@@ -690,6 +705,44 @@ mod tests {
     use crate::bus::{Bus, ROM_N_END};
     use crate::cpu::Cpu;
 
+    #[test]
+    fn sp_signed() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
+
+        cpu.set_pc(0xB000);
+        cpu.set_sp(0x000F);
+        bus.set(0xB001, 1);
+        cpu.misc((0xe, 8), &mut bus);
+        assert_eq!(cpu.get_sp(), 0x0010);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_flag_c(), false);
+
+        cpu.set_pc(0xB000);
+        cpu.set_sp(0x00FF);
+        bus.set(0xB001, 1);
+        cpu.misc((0xe, 8), &mut bus);
+        assert_eq!(cpu.get_sp(), 0x0100);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_flag_c(), true);
+
+        cpu.set_pc(0xB000);
+        cpu.set_sp(0x0000);
+        bus.set(0xB001, 0xFF);
+        cpu.misc((0xe, 8), &mut bus);
+        assert_eq!(cpu.get_sp(), 0xFFFF);
+        assert_eq!(cpu.get_flag_h(), false);
+        assert_eq!(cpu.get_flag_c(), false);
+
+        cpu.set_pc(0xB000);
+        cpu.set_sp(0x0001);
+        bus.set(0xB001, 0xFF);
+        cpu.misc((0xe, 8), &mut bus);
+        assert_eq!(cpu.get_sp(), 0x0000);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_flag_c(), true);
+
+    }
     #[test]
     fn jump() {
         let mut cpu = Cpu::new();

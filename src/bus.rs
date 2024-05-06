@@ -47,8 +47,7 @@ impl Bus {
     }
     pub fn get(&self, address: u16) -> u8 {
         match address {
-            //0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
-            0xFF44 => 0x90,
+            0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
             _ => self.memory.get(address)
         }
     }
@@ -62,8 +61,12 @@ impl Bus {
     }
     pub fn set(&mut self, address: u16, value: u8) {
         match address {
+            0xFF0F => {
+                print!("t");
+            }
             ..=ROM_N_END => panic!("READ-ONLY memory!!!"),
             0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
+            0xFF04 => self.memory.set(address, 0),
             _ => self.memory.set(address, value)
         }
     }
@@ -74,29 +77,35 @@ impl Bus {
 
     pub fn rl(&mut self, _: bool, carry_value: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
+        let c = value.bit(7);
+        value <<= 1;
         value.set_bit(0, carry_value);
-        value = value.rotate_left(1);
         self.set(address, value);
-        (value == 0, false, false, value.bit(0))
+        (value == 0, false, false, c)
     }
     pub fn rlc(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
-        value = value.rotate_left(1);
+        let c = value.bit(7);
+        value <<= 1;
+        value.set_bit(0, c);
         self.set(address, value);
-        (value == 0, false, false, value.bit(0))
+        (value == 0, false, false, c)
     }
     pub fn rr(&mut self, _: bool, carry_value: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
+        let c = value.bit(0);
+        value >>= 1;
         value.set_bit(7, carry_value);
-        value = value.rotate_right(1);
         self.set(address, value);
-        (value == 0, false, false, value.bit(7))
+        (value == 0, false, false, c)
     }
     pub fn rrc(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
-        value = value.rotate_right(1);
+        let c = value.bit(0);
+        value >>= 1;
+        value.set_bit(7, c);
         self.set(address, value);
-        (value == 0, false, false, value.bit(7))
+        (value == 0, false, false, c)
     }
     pub fn sla(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
@@ -115,7 +124,9 @@ impl Bus {
     pub fn sra(&mut self, _: bool, _: bool, _: usize, address: u16) -> (bool, bool, bool, bool) {
         let mut value = self.get(address);
         let c = value.bit(0);
-        value = (value >> 1) | value;
+        let bit7= value.bit(7);
+        value >>= 1;
+        value.set_bit(7, bit7);
         self.set(address, value);
         (value == 0, false, false, c)
     }
@@ -228,5 +239,63 @@ impl Bus {
     }
     pub fn load_rom(&mut self, buffer: Vec<u8>) {
         self.memory.load_rom(buffer);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::bus::{Bus};
+
+    #[test]
+    fn rlc() {
+        let mut bus = Bus::new();
+        bus.set(0xB000, 0x80);
+
+        let (z, n, h, c) = bus.rlc(false, false, 0, 0xB000);
+        assert_eq!(z, false);
+        assert_eq!(h, false);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0xB000), 0x01);
+    }
+    #[test]
+    fn sra() {
+        let mut bus = Bus::new();
+        bus.set(0xB000, 0x01);
+
+        let (z, n, h, c) = bus.sra(false, false, 0, 0xB000);
+        assert_eq!(z, true);
+        assert_eq!(h, false);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0xB000), 0x00);
+    }
+    #[test]
+    fn rr() {
+        let mut bus = Bus::new();
+
+        bus.set(0xB000, 0x7C);
+
+        let (z, n, h, c) = bus.rr(false, true, 0, 0xB000);
+        assert_eq!(c, false);
+        assert_eq!(bus.get(0xB000), 0xBE);
+
+        bus.set(0xB000, 0x3D);
+
+        let (z, n, h, c) = bus.rr(false, true, 0, 0xB000);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0xB000), 0x9E);
+
+        bus.set(0xB000, 0xFF);
+
+        let (z, n, h, c) = bus.rr(false, true, 0, 0xB000);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0xB000), 0xFF);
+
+        bus.set(0xB000, 0x47);
+
+        let (z, n, h, c) = bus.rr(false, false, 0, 0xB000);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0xB000), 0x23);
+
     }
 }

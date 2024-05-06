@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::{io, time};
+use bitfield::Bit;
 use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::fetcher::Fetcher;
@@ -51,6 +52,7 @@ impl Emulator {
     pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
         let ten_millis = time::Duration::from_millis(20);
         let mut count : usize = 0;
+        let mut timer : usize = 0;
         loop {
             let cycles = match self.cpu.get_ime() {
                 true => {
@@ -70,13 +72,35 @@ impl Emulator {
                 }
                 false => self.cpu.step(&mut self.bus)
             };
+            timer += cycles;
 
             for _ in 1..=cycles {
                 self.ppu = self.ppu.execute(&mut self.bus, &mut self.fetcher, &self.output);
             }
+            if timer % 64 == 0 {
+                self.bus.set(0xFF04, self.bus.get(0xFF04).overflowing_add(1).0);
+            }
+            if self.bus.get(0xFF07).bit(2){
+                let step_size = match self.bus.get(0xFF07) & 0x3 {
+                    0 => 256,
+                    1 => 4,
+                    2 => 16,
+                    3 => 64,
+                    _ => panic!("Should be impossible!")
+                };
+                if timer % step_size == 0 {
+                    let (val, c) = self.bus.get(0xFF04).overflowing_add(1);
+                    self.bus.set(0xFF05, val);
+                    if c{
+                        self.bus.set(0xFF05, self.bus.get(0xFF06));
+                        self.bus.set_int_request_timer(true);
+                    }
+
+                }
+            }
 
             if self.bus.get(0xFF02) == 0x81 {
-                write!(stdout, "{}", self.bus.get(0xFF01) as char).expect("Couldn't write");
+                //write!(stdout, "{}", self.bus.get(0xFF01) as char).expect("Couldn't write");
                 self.bus.set(0xFF02, 0);
             }
             //thread::sleep(ten_millis);

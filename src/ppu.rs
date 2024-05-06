@@ -71,7 +71,7 @@ impl Ppu for HBlank {
                     bus.set_int_request_lcd(true);
                 }
                 if bus.get(LY) == 144 {
-                    bus.set_int_request_lcd(true);
+                    bus.set_int_request_vblank(true);
                     Box::new(VBlank { ticks: 0 })
                 } else {
                     Box::new(OAMFetch { ticks: 0 })

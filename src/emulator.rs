@@ -25,6 +25,7 @@ impl Emulator {
         let mut fetcher = Fetcher::new();
         let mut ppu = Box::new(OAMFetch {ticks: 0});
         let output = Box::new(LCD {});
+        output.init();
 
         let mut reader = BufReader::new(rom);
         let mut buffer = Vec::new();

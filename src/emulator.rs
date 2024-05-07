@@ -1,11 +1,11 @@
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::{io, time};
+use std::{io, thread, time};
 use bitfield::Bit;
 use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::fetcher::Fetcher;
-use crate::output::{Output, LCD};
+use crate::output::{Output, LCD, Dummy};
 use crate::ppu::{Ppu, OAMFetch};
 
 pub struct Emulator {
@@ -21,11 +21,10 @@ impl Emulator {
         let rom = File::open(rom_path).expect("Could not open rom");
 
         let mut bus = Bus::new();
-        let mut cpu = Cpu::new();
-        let mut fetcher = Fetcher::new();
-        let mut ppu = Box::new(OAMFetch {ticks: 0});
-        let output = Box::new(LCD {});
-        output.init();
+        let cpu = Cpu::new();
+        let fetcher = Fetcher::new();
+        let ppu = Box::new(OAMFetch {ticks: 0});
+        let mut output = Box::new(Dummy::new(20f64));
 
         let mut reader = BufReader::new(rom);
         let mut buffer = Vec::new();
@@ -51,7 +50,7 @@ impl Emulator {
     }
 
     pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
-        let ten_millis = time::Duration::from_millis(20);
+        let ten_millis = time::Duration::from_millis(1);
         let mut count : usize = 0;
         let mut timer : usize = 0;
         loop {
@@ -76,7 +75,7 @@ impl Emulator {
             timer += cycles;
 
             for _ in 1..=cycles {
-                self.ppu = self.ppu.execute(&mut self.bus, &mut self.fetcher, &self.output);
+                self.ppu = self.ppu.execute(&mut self.bus, &mut self.fetcher, &mut self.output);
             }
             if timer % 64 == 0 {
                 self.bus.set(0xFF04, self.bus.get(0xFF04).overflowing_add(1).0);
@@ -104,7 +103,9 @@ impl Emulator {
                 //write!(stdout, "{}", self.bus.get(0xFF01) as char).expect("Couldn't write");
                 self.bus.set(0xFF02, 0);
             }
-            //thread::sleep(ten_millis);
+            if count % 1024 == 0{
+                //thread::sleep(ten_millis);
+            }
             count += 1;
             if count > max_cycles && max_cycles != 0 {
                 break;

@@ -1,14 +1,14 @@
 use crate::bus::{Bus, VRAM};
-use crate::fetcher::FetcherState::{PushToFIFO, ReadTileData0, ReadTileData1, ReadTileID};
+use crate::window_fetcher::WindowFetcherState::{PushToFIFO, ReadTileData0, ReadTileData1, ReadTileID};
 
-enum FetcherState {
+enum WindowFetcherState {
     ReadTileData0,
     ReadTileData1,
     PushToFIFO,
     ReadTileID
 }
 
-pub struct Fetcher {
+pub struct WindowFetcher {
     ticks: usize,
     tile_id: u8,
     tile_index: u8,
@@ -19,15 +19,15 @@ pub struct Fetcher {
     state: FetcherState
 }
 
-impl Fetcher  {
-    pub(crate) fn new(bus: &Bus) ->Fetcher {
-        Fetcher {
+impl WindowFetcher  {
+    pub(crate) fn new(bus: &Bus) -> WindowFetcher {
+        WindowFetcher {
             ticks: 0,
             tile_id: 0,
-            tile_index: bus.get_scx() / 8,
+            tile_index: 0,
             map_address: 0,
             line_id: 0,
-            line_index: (bus.get_scy() / 8 + bus.get_ly() / 8) % 32,
+            line_index: 0,
             pixel_data: [0; 8],
             state: ReadTileData0,
         }

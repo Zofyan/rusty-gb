@@ -51,6 +51,7 @@ impl Cpu {
         self.log(&bus);
         let opcode = bus.get(self.get_pc());
         let inst = (opcode >> 4, opcode & 0xF);
+        let cycles = self.counter;
         //println!("Executing {:#02x}({:#01x}, {:#01x}) at {:#02x}", opcode, inst.0, inst.1, self.get_pc());
         if !self.load(inst, &mut bus) &&
             !self.alu(inst, &mut bus) &&
@@ -70,16 +71,15 @@ impl Cpu {
         //if self.counter % 100 == 0 {
         //    println!("{}", self.counter);
         //}
-        let cycles = 1;
         //self.counter = 0;
-        cycles
+        self.counter - cycles
     }
 
     fn _cycles(&mut self, _count: usize) {
         self.counter += _count
     }
     fn _pc(&mut self, count: u16) { self.set_pc(self.get_pc() + count) }
-    pub fn interrupt(&mut self, mut bus: &mut Bus, address: u16) -> usize {
+    pub fn interrupt(&mut self, bus: &mut Bus, address: u16) -> usize {
         self._cycles(2);
         self._push(self.get_pc(), bus);
         self._cycles(2);
@@ -234,12 +234,15 @@ impl Cpu {
                 self._pc(1);
             }
             (0x2, 0x7) => {
-                if (!self.get_flag_n()) {  // after an addition, adjust if (half-)carry occurred or if result is out of bounds
-                  if (self.get_flag_c() || self.a.get() > 0x99) { self.a.add(0x60, false, false); self.set_flag_c(true); }
-                  if (self.get_flag_h() || (self.a.get() & 0x0f) > 0x09) { self.a.add(0x6, false, false); }
+                if !self.get_flag_n() {  // after an addition, adjust if (half-)carry occurred or if result is out of bounds
+                    if self.get_flag_c() || self.a.get() > 0x99 {
+                        self.a.add(0x60, false, false);
+                        self.set_flag_c(true);
+                    }
+                    if self.get_flag_h() || (self.a.get() & 0x0f) > 0x09 { self.a.add(0x6, false, false); }
                 } else {  // after a subtraction, only adjust if (half-)carry occurred
-                  if (self.get_flag_c()) { self.a.sub(0x60, false, false); }
-                  if (self.get_flag_h()) { self.a.sub(0x6, false, false); }
+                    if self.get_flag_c() { self.a.sub(0x60, false, false); }
+                    if self.get_flag_h() { self.a.sub(0x6, false, false); }
                 }
                 // these flags are always updated
                 self.set_flag_z(self.a.get() == 0); // the usual z flag
@@ -249,7 +252,7 @@ impl Cpu {
                 self.set_ime(true);
                 self.ret((0xc, 0x9), &mut bus);
                 self._cycles(1);
-                return true
+                return true;
             }
             _ => return false
         }
@@ -293,8 +296,8 @@ impl Cpu {
                 _ => func(&mut bus, false, current_flag, 0, address)
             };
             match inst.0 {
-                4..=7 => { self._cycles(1) }
-                _ => self._cycles(2)
+                4..=7 => { self._cycles(3) }
+                _ => self._cycles(4)
             }
         } else {
             let func = match inst {
@@ -678,7 +681,7 @@ impl Cpu {
                 }
                 (0xc..=0xd, 2) | (0xc..=0xd, 0xa) | (0xc, 0x3) => {
                     self.set_pc(bus.get16(pc + 1));
-                    self._cycles(3)
+                    self._cycles(4)
                 }
                 (0xe, 0x9) => {
                     self.set_pc(self.get_hl());
@@ -741,8 +744,8 @@ mod tests {
         assert_eq!(cpu.get_sp(), 0x0000);
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_flag_c(), true);
-
     }
+
     #[test]
     fn jump() {
         let mut cpu = Cpu::new();
@@ -801,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn alu16(){
+    fn alu16() {
         let mut cpu = Cpu::new();
         let mut bus = Bus::new();
 
@@ -991,5 +994,81 @@ mod tests {
         assert_eq!(cpu.get_de(), x1);
         cpu.pop((0xd, 1), &mut bus);
         assert_eq!(cpu.get_de(), y1);
+    }
+    #[test]
+    fn cycles() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
+        cpu.set_pc(0xB000);
+        cpu.set_hl(0xB000);
+
+        cpu.counter = 0;
+        cpu.load((0x4, 0x0), &mut bus);
+        assert_eq!(cpu.counter, 1);
+
+        cpu.counter = 0;
+        cpu.load((0x4, 0x6), &mut bus);
+        assert_eq!(cpu.counter, 2);
+
+        cpu.counter = 0;
+        cpu.load((0x7, 0x0), &mut bus);
+        assert_eq!(cpu.counter, 2);
+
+        cpu.counter = 0;
+        cpu.load((0x3, 0x6), &mut bus);
+        assert_eq!(cpu.counter, 3);
+
+        cpu.counter = 0;
+        cpu.load((0xe, 0x2), &mut bus);
+        assert_eq!(cpu.counter, 2);
+
+        cpu.counter = 0;
+        bus.set(cpu.get_pc() + 1, 0xBB);
+        bus.set(cpu.get_pc() + 2, 0xBB);
+        cpu.load((0xe, 0xa), &mut bus);
+        assert_eq!(cpu.counter, 4);
+
+        cpu.counter = 0;
+        cpu.load16((0x1, 0x1), &mut bus);
+        assert_eq!(cpu.counter, 3);
+
+        cpu.counter = 0;
+        cpu.jump((0xc, 0x3), &mut bus);
+        assert_eq!(cpu.counter, 4);
+        cpu.set_pc(0xB000);
+
+        cpu.counter = 0;
+        cpu.jump((0x1, 0x8), &mut bus);
+        assert_eq!(cpu.counter, 3);
+        cpu.set_pc(0xB000);
+
+        cpu.counter = 0;
+        cpu.set_flag_z(true);
+        cpu.call((0xc, 0x4), &mut bus);
+        assert_eq!(cpu.counter, 3);
+        cpu.set_pc(0xB000);
+
+        cpu.counter = 0;
+        cpu.set_flag_z(false);
+        cpu.call((0xc, 0x4), &mut bus);
+        assert_eq!(cpu.counter, 6);
+        cpu.set_pc(0xB000);
+
+        cpu.counter = 0;
+        cpu.set_flag_z(false);
+        cpu.ret((0xc, 0x8), &mut bus);
+        assert_eq!(cpu.counter, 2);
+        cpu.set_pc(0xB000);
+
+        cpu.counter = 0;
+        cpu.set_flag_z(true);
+        cpu.ret((0xc, 0x8), &mut bus);
+        assert_eq!(cpu.counter, 5);
+        cpu.set_pc(0xB000);
+
+        cpu.counter = 0;
+        cpu.reset((0xf, 0xf), &mut bus);
+        assert_eq!(cpu.counter, 4);
+        cpu.set_pc(0xB000);
     }
 }

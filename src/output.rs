@@ -1,60 +1,55 @@
-use eframe::egui;
+use piston_window::*;
+use piston_window::types::ColorComponent;
+
 pub trait Output {
-    fn write_pixel(&self, x: u16, y: u16, color: u8){}
-    fn init(&self);
+    fn write_pixel(&mut self, _: u16, _: u16, _: u8) {}
+    fn refresh(&mut self) {}
+    fn new(size: f64) -> Self where Self: Sized;
 }
 
-pub struct LCD {
+pub struct Dummy {}
 
+impl Output for Dummy {
+    fn new(size: f64) -> Self where Self: Sized { Dummy {} }
+}
+pub struct LCD {
+    window: PistonWindow,
+    size: f64,
+    pixels: Vec<[u16; 3]>,
 }
 
 impl Output for LCD {
-    fn write_pixel(&self, x: u16, y: u16, color: u8) {
-
+    fn write_pixel(&mut self, x: u16, y: u16, color: u8) {
+        self.pixels.push([x, y, color as u16])
     }
-    fn init(&self){
-        let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "My egui App",
-        options,
-        Box::new(|cc| {
-            Box::<MyApp>::default()
-        }),
-    ).expect("TODO: panic message");
+    fn refresh(&mut self) {
+        let Some(event) = self.window.next() else { panic!("test") };
+        self.window.draw_2d(&event, |context, graphics, _device| {
+            clear([0.0; 4], graphics);
+        });
+        self.window.draw_2d(&event, |context, graphics, _device| {
+            for pixel in &self.pixels {
+                rectangle([(pixel[2] as f64 * 0.3) as ColorComponent,
+                              (pixel[2] as f64 * 0.3) as ColorComponent,
+                              (pixel[2] as f64 * 0.3) as ColorComponent, 1.0], // red
+                          [pixel[0] as f64 * self.size, pixel[1] as f64 * self.size, self.size, self.size],
+                          context.transform,
+                          graphics);
+            }
+        });
+        self.pixels.clear();
     }
-}
-struct MyApp {
-    name: String,
-    age: u32,
-}
-
-impl Default for MyApp {
-    fn default() -> Self {
-        Self {
-            name: "Arthur".to_owned(),
-            age: 42,
+    fn new(size: f64) -> Self where Self: Sized {
+        LCD {
+            window: WindowSettings::new("Hello Piston!", [size * 160.0, size * 144.0])
+                .exit_on_esc(true).build().unwrap(),
+            size,
+            pixels: Vec::new(),
         }
     }
 }
 
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("My egui Application");
-            ui.horizontal(|ui| {
-                let name_label = ui.label("Your name: ");
-                ui.text_edit_singleline(&mut self.name)
-                    .labelled_by(name_label.id);
-            });
-            ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
-            if ui.button("Increment").clicked() {
-                self.age += 1;
-            }
-            ui.label(format!("Hello '{}', age {}", self.name, self.age));
-
-        });
-    }
+struct MyApp {
+    name: String,
+    age: u32,
 }

@@ -38,7 +38,7 @@ pub const INT_ENABLE_SIZE: u16 = INT_ENABLE_END - INT_ENABLE + 1;
 
 pub struct Bus {
     memory: Memory,
-    pub(crate) fifo: Vec<u8>
+    pub fifo: Vec<u8>,
 }
 
 impl Bus {
@@ -149,6 +149,11 @@ impl Bus {
         self.set(address, value);
         (false, false, false, false)
     }
+    pub fn set_bit(&mut self, address: u16, bit: usize, value: bool) {
+        let mut val = self.get(address);
+        val.set_bit(bit, value);
+        self.set(address, val);
+    }
     pub fn set_int_enable_joypad(&mut self, value: bool){
         let mut val =  self.get(0xFF0F);
         val.set_bit(4, value);
@@ -234,6 +239,90 @@ impl Bus {
         val.set_bit(bit, !value);
         self.set(0xFF00, val)
     }
+    pub fn get_ldlc_bd_window_enable(&self) -> bool {
+        self.get(0xFF40).bit(0)
+    }
+    pub fn get_ldlc_obj_enable(&self) -> bool {
+        self.get(0xFF40).bit(1)
+    }
+    pub fn get_ldlc_obj_size(&self) -> bool {
+        self.get(0xFF40).bit(2)
+    }
+    pub fn get_ldlc_bg_tilemap(&self) -> bool {
+        self.get(0xFF40).bit(3)
+    }
+    pub fn get_ldlc_bg_window_tiles(&self) -> bool {
+        self.get(0xFF40).bit(4)
+    }
+    pub fn get_ldlc_window_enable(&self) -> bool {
+        self.get(0xFF40).bit(5)
+    }
+    pub fn get_ldlc_window_tilemap(&self) -> bool {
+        self.get(0xFF40).bit(6)
+    }
+    pub fn get_ldlc_lcd_ppu_enable(&self) -> bool {
+        self.get(0xFF40).bit(7)
+    }
+    pub fn set_ldlc_bd_window_enable(&mut self, value: bool) {
+        self.set_bit(0xFF40, 0, value);
+    }
+    pub fn set_ldlc_obj_enable(&mut self, value: bool) {
+        self.set_bit(0xFF40, 1, value);
+    }
+    pub fn set_ldlc_obj_size(&mut self, value: bool) {
+        self.set_bit(0xFF40, 2, value);
+    }
+    pub fn set_ldlc_bg_tilemap(&mut self, value: bool) {
+        self.set_bit(0xFF40, 3, value);
+    }
+    pub fn set_ldlc_bg_window_tiles(&mut self, value: bool) {
+        self.set_bit(0xFF40, 4, value);
+    }
+    pub fn set_ldlc_window_enable(&mut self, value: bool) {
+        self.set_bit(0xFF40, 5, value);
+    }
+    pub fn set_ldlc_window_tilemap(&mut self, value: bool) {
+        self.set_bit(0xFF40, 6, value);
+    }
+    pub fn set_ldlc_lcd_ppu_enable(&mut self, value: bool) {
+        self.set_bit(0xFF40, 7, value);
+    }
+    pub fn get_scy(&self) -> u8 {
+        self.get(0xFF42)
+    }
+    pub fn get_scx(&self) -> u8 {
+        self.get(0xFF43)
+    }
+    pub fn get_ly(&self) -> u8 {
+        self.get(0xFF44)
+    }
+    pub fn get_lyc(&self) -> u8 {
+        self.get(0xFF45)
+    }
+    pub fn set_scy(&mut self, value: u8) {
+        self.set(0xFF42, value)
+    }
+    pub fn set_scx(&mut self, value: u8) {
+        self.set(0xFF43, value)
+    }
+    pub fn set_ly(&mut self, value: u8) {
+        self.set(0xFF44, value)
+    }
+    pub fn set_lyc(&mut self, value: u8) {
+        self.set(0xFF45, value)
+    }
+    pub fn get_wy(&self) -> u8 {
+        self.get(0xFF4A)
+    }
+    pub fn set_wy(&mut self, value: u8) {
+        self.set(0xFF4A, value)
+    }
+    pub fn get_wx(&self) -> u8 {
+        self.get(0xFF4B)
+    }
+    pub fn set_wx(&mut self, value: u8) {
+        self.set(0xFF4B, value)
+    }
     pub fn load_rom(&mut self, buffer: Vec<u8>) {
         self.memory.load_rom(buffer);
     }
@@ -249,7 +338,7 @@ mod tests {
         let mut bus = Bus::new();
         bus.set(0xB000, 0x80);
 
-        let (z, n, h, c) = bus.rlc(false, false, 0, 0xB000);
+        let (z, _, h, c) = bus.rlc(false, false, 0, 0xB000);
         assert_eq!(z, false);
         assert_eq!(h, false);
         assert_eq!(c, true);
@@ -260,7 +349,7 @@ mod tests {
         let mut bus = Bus::new();
         bus.set(0xB000, 0x01);
 
-        let (z, n, h, c) = bus.sra(false, false, 0, 0xB000);
+        let (z, _, h, c) = bus.sra(false, false, 0, 0xB000);
         assert_eq!(z, true);
         assert_eq!(h, false);
         assert_eq!(c, true);
@@ -272,25 +361,25 @@ mod tests {
 
         bus.set(0xB000, 0x7C);
 
-        let (z, n, h, c) = bus.rr(false, true, 0, 0xB000);
+        let (_, _, _, c) = bus.rr(false, true, 0, 0xB000);
         assert_eq!(c, false);
         assert_eq!(bus.get(0xB000), 0xBE);
 
         bus.set(0xB000, 0x3D);
 
-        let (z, n, h, c) = bus.rr(false, true, 0, 0xB000);
+        let (_, _, _, c) = bus.rr(false, true, 0, 0xB000);
         assert_eq!(c, true);
         assert_eq!(bus.get(0xB000), 0x9E);
 
         bus.set(0xB000, 0xFF);
 
-        let (z, n, h, c) = bus.rr(false, true, 0, 0xB000);
+        let (_, _, _, c) = bus.rr(false, true, 0, 0xB000);
         assert_eq!(c, true);
         assert_eq!(bus.get(0xB000), 0xFF);
 
         bus.set(0xB000, 0x47);
 
-        let (z, n, h, c) = bus.rr(false, false, 0, 0xB000);
+        let (_, _, _, c) = bus.rr(false, false, 0, 0xB000);
         assert_eq!(c, true);
         assert_eq!(bus.get(0xB000), 0x23);
 

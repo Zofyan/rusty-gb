@@ -150,7 +150,7 @@ mod tests {
     fn rlca() {
         let mut reg = Register { value: 0x80 };
 
-        let (z, n, h, c) = reg.rotate_left_a(true, false);
+        let (z, _, h, c) = reg.rotate_left_a(true, false);
         assert_eq!(z, false);
         assert_eq!(h, false);
         assert_eq!(c, true);
@@ -160,7 +160,7 @@ mod tests {
     fn rlc() {
         let mut reg = Register { value: 0x80 };
 
-        let (z, n, h, c) = reg.rlc(false, false, 0, 0);
+        let (z, _, h, c) = reg.rlc(false, false, 0, 0);
         assert_eq!(z, false);
         assert_eq!(h, false);
         assert_eq!(c, true);
@@ -170,7 +170,7 @@ mod tests {
     fn sra() {
         let mut reg = Register { value: 0x01 };
 
-        let (z, n, h, c) = reg.sra(false, false, 0, 0);
+        let (z, _, h, c) = reg.sra(false, false, 0, 0);
         assert_eq!(z, true);
         assert_eq!(h, false);
         assert_eq!(c, true);
@@ -180,7 +180,7 @@ mod tests {
     fn add() {
         let mut reg = Register { value: 0xFE };
 
-        let (z, n, h, c) = reg.add(01, true, true);
+        let (z, _, h, c) = reg.add(01, true, true);
         assert_eq!(z, true);
         assert_eq!(h, true);
         assert_eq!(c, true);
@@ -192,25 +192,25 @@ mod tests {
 
         reg.value = 0x7C;
 
-        let (z, n, h, c) = reg.rr(false, true, 0, 0);
+        let (_, _, _, c) = reg.rr(false, true, 0, 0);
         assert_eq!(c, false);
         assert_eq!(reg.value, 0xBE);
 
         reg.value = 0x3D;
 
-        let (z, n, h, c) = reg.rr(false, true, 0, 0);
+        let (_, _, _, c) = reg.rr(false, true, 0, 0);
         assert_eq!(c, true);
         assert_eq!(reg.value, 0x9E);
 
         reg.value = 0xFF;
 
-        let (z, n, h, c) = reg.rr(false, true, 0, 0);
+        let (_, _, _, c) = reg.rr(false, true, 0, 0);
         assert_eq!(c, true);
         assert_eq!(reg.value, 0xFF);
 
         reg.value = 0x47;
 
-        let (z, n, h, c) = reg.rr(false, false, 0, 0);
+        let (_, _, _, c) = reg.rr(false, false, 0, 0);
         assert_eq!(c, true);
         assert_eq!(reg.value, 0x23);
 

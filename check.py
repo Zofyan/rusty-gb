@@ -1,5 +1,5 @@
 fp1 = open("out.txt", "r")
-fp2 = open("Blargg2.txt", "r")
+fp2 = open("Blargg7.txt", "r")
 
 lines1 = list(filter(lambda x: len(x) > 30, fp1.readlines()))
 lines2 = fp2.readlines()

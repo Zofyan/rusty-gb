@@ -1,4 +1,4 @@
-use crate::bus::Bus;
+use crate::bus::{Bus, INT_ENABLE, INT_REQUEST};
 use crate::register::Register;
 
 pub struct Cpu {
@@ -14,12 +14,13 @@ pub struct Cpu {
     pc: u16,
     counter: usize,
     ime: bool,
+    halted: bool,
 }
 
 impl Cpu {
     // Constructor for Cpu
     pub fn new() -> Cpu {
-        let mut cpu = Cpu { a: Register { value: 0 }, b: Register { value: 0 }, c: Register { value: 0 }, d: Register { value: 0 }, e: Register { value: 0 }, f: Register { value: 0 }, h: Register { value: 0 }, l: Register { value: 0 }, pc: 0, sp: 0, counter: 0, ime: true };
+        let mut cpu = Cpu { a: Register { value: 0 }, b: Register { value: 0 }, c: Register { value: 0 }, d: Register { value: 0 }, e: Register { value: 0 }, f: Register { value: 0 }, h: Register { value: 0 }, l: Register { value: 0 }, pc: 0, sp: 0, counter: 0, ime: false, halted: false };
         cpu.set_sp(crate::bus::HRAM_END);
         cpu.set_pc(0x0100);
         cpu.set_bc(0x0013);
@@ -48,7 +49,14 @@ impl Cpu {
         )
     }
     pub fn step(&mut self, mut bus: &mut Bus) -> usize {
-        self.log(&bus);
+        //self.log(&bus);
+        if self.halted{
+            if bus.get(INT_ENABLE) & bus.get(INT_REQUEST) > 0{
+                self.halted = false;
+            } else{
+                return 1;
+            }
+        }
         let opcode = bus.get(self.get_pc());
         let inst = (opcode >> 4, opcode & 0xF);
         let cycles = self.counter;
@@ -85,6 +93,7 @@ impl Cpu {
         self._cycles(2);
         self.set_pc(address);
         self._cycles(1);
+        self.halted = false;
         self.set_ime(false);
         5
     }
@@ -182,7 +191,7 @@ impl Cpu {
         bus.set(address, val);
         (val == 0, true, h, c)
     }
-    fn set_ime(&mut self, value: bool) {
+    pub fn set_ime(&mut self, value: bool) {
         self.ime = value
     }
     pub fn get_ime(&mut self) -> bool {
@@ -191,7 +200,8 @@ impl Cpu {
     fn misc(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         match inst {
             (0, 0) => {}
-            (1, 0) | (7, 6) => panic!("Stopped/Halted"),
+            (1, 0) => panic!("Stopped"),
+            (7, 6) => self.halted = true,
             (0xf, 3) => self.set_ime(false),
             (0xf, 0xb) => self.set_ime(true),
             (0x3, 0x7) => {
@@ -251,7 +261,6 @@ impl Cpu {
             (0xd, 0x9) => {
                 self.set_ime(true);
                 self.ret((0xc, 0x9), &mut bus);
-                self._cycles(1);
                 return true;
             }
             _ => return false
@@ -400,14 +409,14 @@ impl Cpu {
     }
     fn reset(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         let new_pc = match inst {
-            (0xc, 7) => bus.get16(0x0),
-            (0xc, 0xf) => bus.get16(0x8),
-            (0xd, 7) => bus.get16(0x10),
-            (0xd, 0xf) => bus.get16(0x18),
-            (0xe, 7) => bus.get16(0x20),
-            (0xe, 0xf) => bus.get16(0x28),
-            (0xf, 7) => bus.get16(0x30),
-            (0xf, 0xf) => bus.get16(0x38),
+            (0xc, 7) => 0x08,
+            (0xc, 0xf) => 0x08,
+            (0xd, 7) => 0x10,
+            (0xd, 0xf) => 0x18,
+            (0xe, 7) => 0x20,
+            (0xe, 0xf) => 0x28,
+            (0xf, 7) => 0x30,
+            (0xf, 0xf) => 0x38,
             _ => return false
         };
         self._pc(1);
@@ -537,7 +546,9 @@ impl Cpu {
             (0x0, 0x2) => bus.set(self.get_bc(), val),
             (0x1, 0x2) => bus.set(self.get_de(), val),
             (0xe, 0xa) => bus.set(bus.get16(self.get_pc() + 1), val),
-            (0xe, 0) => bus.set(bus.get(self.get_pc() + 1) as u16 + 0xFF00, val),
+            (0xe, 0) => {
+                    bus.set(bus.get(self.get_pc() + 1) as u16 + 0xFF00, val)
+            },
             (0xe, 2) => bus.set(self.c.get() as u16 + 0xFF00, val),
             _ => return false
         };
@@ -745,7 +756,6 @@ mod tests {
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_flag_c(), true);
     }
-
     #[test]
     fn jump() {
         let mut cpu = Cpu::new();
@@ -762,8 +772,14 @@ mod tests {
             cpu.jump((0x1, 0x8), &mut bus);
             assert_eq!(cpu.get_pc(), y1.wrapping_add_signed((x1 as i8) as i16) + 2);
         }
-    }
 
+        cpu.set_pc(0xB209);
+        bus.set(0xB209 + 1, 0xFB);
+        cpu.set_flag_z(false);
+
+        cpu.jump((0x2, 0x0), &mut bus);
+        assert_eq!(cpu.get_pc(), 0xB206);
+    }
     #[test]
     fn load() {
         let mut cpu = Cpu::new();
@@ -802,7 +818,6 @@ mod tests {
         cpu.load((1, 0xe), &mut bus);
         assert_eq!(cpu.e.get(), x1);
     }
-
     #[test]
     fn alu16() {
         let mut cpu = Cpu::new();
@@ -813,7 +828,6 @@ mod tests {
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_hl(), 0x9800);
     }
-
     #[test]
     fn alu() {
         let mut cpu = Cpu::new();
@@ -936,7 +950,6 @@ mod tests {
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_flag_n(), false);
     }
-
     #[test]
     fn dec() {
         let mut cpu = Cpu::new();
@@ -961,7 +974,6 @@ mod tests {
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_flag_n(), true);
     }
-
     #[test]
     fn stack() {
         let mut cpu = Cpu::new();
@@ -995,80 +1007,283 @@ mod tests {
         cpu.pop((0xd, 1), &mut bus);
         assert_eq!(cpu.get_de(), y1);
     }
-    #[test]
-    fn cycles() {
+    fn sub_cycle(inst: u8, cycles: usize){
         let mut cpu = Cpu::new();
         let mut bus = Bus::new();
         cpu.set_pc(0xB000);
         cpu.set_hl(0xB000);
-
-        cpu.counter = 0;
-        cpu.load((0x4, 0x0), &mut bus);
-        assert_eq!(cpu.counter, 1);
-
-        cpu.counter = 0;
-        cpu.load((0x4, 0x6), &mut bus);
-        assert_eq!(cpu.counter, 2);
-
-        cpu.counter = 0;
-        cpu.load((0x7, 0x0), &mut bus);
-        assert_eq!(cpu.counter, 2);
-
-        cpu.counter = 0;
-        cpu.load((0x3, 0x6), &mut bus);
-        assert_eq!(cpu.counter, 3);
-
-        cpu.counter = 0;
-        cpu.load((0xe, 0x2), &mut bus);
-        assert_eq!(cpu.counter, 2);
-
-        cpu.counter = 0;
+        cpu.set_bc(0xB000);
+        cpu.set_de(0xB000);
+        cpu.set_sp(0xB000);
+        cpu.set_flag_z(false);
+        cpu.set_flag_c(false);
+        bus.set(cpu.get_pc(), inst);
         bus.set(cpu.get_pc() + 1, 0xBB);
         bus.set(cpu.get_pc() + 2, 0xBB);
-        cpu.load((0xe, 0xa), &mut bus);
-        assert_eq!(cpu.counter, 4);
-
         cpu.counter = 0;
-        cpu.load16((0x1, 0x1), &mut bus);
-        assert_eq!(cpu.counter, 3);
+        cpu.step(&mut bus);
+        assert_eq!(cpu.counter, cycles);
+    }
+    #[test]
+    fn cycles() {
+        sub_cycle(0x00, 1);
+        sub_cycle(0x01, 3);
+        sub_cycle(0x02, 2);
+        sub_cycle(0x03, 2);
+        sub_cycle(0x04, 1);
+        sub_cycle(0x05, 1);
+        sub_cycle(0x06, 2);
+        sub_cycle(0x07, 1);
+        sub_cycle(0x08, 5);
+        sub_cycle(0x09, 2);
+        sub_cycle(0x0a, 2);
+        sub_cycle(0x0b, 2);
+        sub_cycle(0x0c, 1);
+        sub_cycle(0x0d, 1);
+        sub_cycle(0x0e, 2);
+        sub_cycle(0x0f, 1);
 
-        cpu.counter = 0;
-        cpu.jump((0xc, 0x3), &mut bus);
-        assert_eq!(cpu.counter, 4);
-        cpu.set_pc(0xB000);
+        //sub_cycle(0x10, 1);
+        sub_cycle(0x11, 3);
+        sub_cycle(0x12, 2);
+        sub_cycle(0x13, 2);
+        sub_cycle(0x14, 1);
+        sub_cycle(0x15, 1);
+        sub_cycle(0x16, 2);
+        sub_cycle(0x17, 1);
+        sub_cycle(0x18, 3);
+        sub_cycle(0x19, 2);
+        sub_cycle(0x1a, 2);
+        sub_cycle(0x1b, 2);
+        sub_cycle(0x1c, 1);
+        sub_cycle(0x1d, 1);
+        sub_cycle(0x1e, 2);
+        sub_cycle(0x1f, 1);
 
-        cpu.counter = 0;
-        cpu.jump((0x1, 0x8), &mut bus);
-        assert_eq!(cpu.counter, 3);
-        cpu.set_pc(0xB000);
+        sub_cycle(0x20, 3);
+        sub_cycle(0x21, 3);
+        sub_cycle(0x22, 2);
+        sub_cycle(0x23, 2);
+        sub_cycle(0x24, 1);
+        sub_cycle(0x25, 1);
+        sub_cycle(0x26, 2);
+        sub_cycle(0x27, 1);
+        sub_cycle(0x28, 2);
+        sub_cycle(0x29, 2);
+        sub_cycle(0x2a, 2);
+        sub_cycle(0x2b, 2);
+        sub_cycle(0x2c, 1);
+        sub_cycle(0x2d, 1);
+        sub_cycle(0x2e, 2);
+        sub_cycle(0x2f, 1);
 
-        cpu.counter = 0;
-        cpu.set_flag_z(true);
-        cpu.call((0xc, 0x4), &mut bus);
-        assert_eq!(cpu.counter, 3);
-        cpu.set_pc(0xB000);
+        sub_cycle(0x30, 3);
+        sub_cycle(0x31, 3);
+        sub_cycle(0x32, 2);
+        sub_cycle(0x33, 2);
+        sub_cycle(0x34, 3);
+        sub_cycle(0x35, 3);
+        sub_cycle(0x36, 3);
+        sub_cycle(0x37, 1);
+        sub_cycle(0x38, 2);
+        sub_cycle(0x39, 2);
+        sub_cycle(0x3a, 2);
+        sub_cycle(0x3b, 2);
+        sub_cycle(0x3c, 1);
+        sub_cycle(0x3d, 1);
+        sub_cycle(0x3e, 2);
+        sub_cycle(0x3f, 1);
 
-        cpu.counter = 0;
-        cpu.set_flag_z(false);
-        cpu.call((0xc, 0x4), &mut bus);
-        assert_eq!(cpu.counter, 6);
-        cpu.set_pc(0xB000);
+        sub_cycle(0x40, 1);
+        sub_cycle(0x41, 1);
+        sub_cycle(0x42, 1);
+        sub_cycle(0x43, 1);
+        sub_cycle(0x44, 1);
+        sub_cycle(0x45, 1);
+        sub_cycle(0x46, 2);
+        sub_cycle(0x47, 1);
+        sub_cycle(0x48, 1);
+        sub_cycle(0x49, 1);
+        sub_cycle(0x4a, 1);
+        sub_cycle(0x4b, 1);
+        sub_cycle(0x4c, 1);
+        sub_cycle(0x4d, 1);
+        sub_cycle(0x4e, 2);
+        sub_cycle(0x4f, 1);
 
-        cpu.counter = 0;
-        cpu.set_flag_z(false);
-        cpu.ret((0xc, 0x8), &mut bus);
-        assert_eq!(cpu.counter, 2);
-        cpu.set_pc(0xB000);
+        sub_cycle(0x50, 1);
+        sub_cycle(0x51, 1);
+        sub_cycle(0x52, 1);
+        sub_cycle(0x53, 1);
+        sub_cycle(0x54, 1);
+        sub_cycle(0x55, 1);
+        sub_cycle(0x56, 2);
+        sub_cycle(0x57, 1);
+        sub_cycle(0x58, 1);
+        sub_cycle(0x59, 1);
+        sub_cycle(0x5a, 1);
+        sub_cycle(0x5b, 1);
+        sub_cycle(0x5c, 1);
+        sub_cycle(0x5d, 1);
+        sub_cycle(0x5e, 2);
+        sub_cycle(0x5f, 1);
 
-        cpu.counter = 0;
-        cpu.set_flag_z(true);
-        cpu.ret((0xc, 0x8), &mut bus);
-        assert_eq!(cpu.counter, 5);
-        cpu.set_pc(0xB000);
+        sub_cycle(0x60, 1);
+        sub_cycle(0x61, 1);
+        sub_cycle(0x62, 1);
+        sub_cycle(0x63, 1);
+        sub_cycle(0x64, 1);
+        sub_cycle(0x65, 1);
+        sub_cycle(0x66, 2);
+        sub_cycle(0x67, 1);
+        sub_cycle(0x68, 1);
+        sub_cycle(0x69, 1);
+        sub_cycle(0x6a, 1);
+        sub_cycle(0x6b, 1);
+        sub_cycle(0x6c, 1);
+        sub_cycle(0x6d, 1);
+        sub_cycle(0x6e, 2);
+        sub_cycle(0x6f, 1);
 
-        cpu.counter = 0;
-        cpu.reset((0xf, 0xf), &mut bus);
-        assert_eq!(cpu.counter, 4);
-        cpu.set_pc(0xB000);
+        sub_cycle(0x70, 2);
+        sub_cycle(0x71, 2);
+        sub_cycle(0x72, 2);
+        sub_cycle(0x73, 2);
+        sub_cycle(0x74, 2);
+        sub_cycle(0x75, 2);
+        //sub_cycle(0x76, 2);
+        sub_cycle(0x77, 2);
+        sub_cycle(0x78, 1);
+        sub_cycle(0x79, 1);
+        sub_cycle(0x7a, 1);
+        sub_cycle(0x7b, 1);
+        sub_cycle(0x7c, 1);
+        sub_cycle(0x7d, 1);
+        sub_cycle(0x7e, 2);
+        sub_cycle(0x7f, 1);
+
+        sub_cycle(0x80, 1);
+        sub_cycle(0x81, 1);
+        sub_cycle(0x82, 1);
+        sub_cycle(0x83, 1);
+        sub_cycle(0x84, 1);
+        sub_cycle(0x85, 1);
+        sub_cycle(0x86, 2);
+        sub_cycle(0x87, 1);
+        sub_cycle(0x88, 1);
+        sub_cycle(0x89, 1);
+        sub_cycle(0x8a, 1);
+        sub_cycle(0x8b, 1);
+        sub_cycle(0x8c, 1);
+        sub_cycle(0x8d, 1);
+        sub_cycle(0x8e, 2);
+        sub_cycle(0x8f, 1);
+
+        sub_cycle(0x90, 1);
+        sub_cycle(0x91, 1);
+        sub_cycle(0x92, 1);
+        sub_cycle(0x93, 1);
+        sub_cycle(0x94, 1);
+        sub_cycle(0x95, 1);
+        sub_cycle(0x96, 2);
+        sub_cycle(0x97, 1);
+        sub_cycle(0x98, 1);
+        sub_cycle(0x99, 1);
+        sub_cycle(0x9a, 1);
+        sub_cycle(0x9b, 1);
+        sub_cycle(0x9c, 1);
+        sub_cycle(0x9d, 1);
+        sub_cycle(0x9e, 2);
+        sub_cycle(0x9f, 1);
+
+        sub_cycle(0xa0, 1);
+        sub_cycle(0xa1, 1);
+        sub_cycle(0xa2, 1);
+        sub_cycle(0xa3, 1);
+        sub_cycle(0xa4, 1);
+        sub_cycle(0xa5, 1);
+        sub_cycle(0xa6, 2);
+        sub_cycle(0xa7, 1);
+        sub_cycle(0xa8, 1);
+        sub_cycle(0xa9, 1);
+        sub_cycle(0xaa, 1);
+        sub_cycle(0xab, 1);
+        sub_cycle(0xac, 1);
+        sub_cycle(0xad, 1);
+        sub_cycle(0xae, 2);
+        sub_cycle(0xaf, 1);
+
+        sub_cycle(0xb0, 1);
+        sub_cycle(0xb1, 1);
+        sub_cycle(0xb2, 1);
+        sub_cycle(0xb3, 1);
+        sub_cycle(0xb4, 1);
+        sub_cycle(0xb5, 1);
+        sub_cycle(0xb6, 2);
+        sub_cycle(0xb7, 1);
+        sub_cycle(0xb8, 1);
+        sub_cycle(0xb9, 1);
+        sub_cycle(0xba, 1);
+        sub_cycle(0xbb, 1);
+        sub_cycle(0xbc, 1);
+        sub_cycle(0xbd, 1);
+        sub_cycle(0xbe, 2);
+        sub_cycle(0xbf, 1);
+
+        sub_cycle(0xc0, 5);
+        sub_cycle(0xc1, 3);
+        sub_cycle(0xc2, 4);
+        sub_cycle(0xc3, 4);
+        sub_cycle(0xc4, 6);
+        sub_cycle(0xc5, 4);
+        sub_cycle(0xc6, 2);
+        sub_cycle(0xc7, 4);
+        sub_cycle(0xc8, 2);
+        sub_cycle(0xc9, 4);
+        sub_cycle(0xca, 3);
+        sub_cycle(0xcc, 3);
+        sub_cycle(0xcd, 6);
+        sub_cycle(0xce, 2);
+        sub_cycle(0xcf, 4);
+
+        sub_cycle(0xd0, 5);
+        sub_cycle(0xd1, 3);
+        sub_cycle(0xd2, 4);
+        sub_cycle(0xd4, 6);
+        sub_cycle(0xd5, 4);
+        sub_cycle(0xd6, 2);
+        sub_cycle(0xd7, 4);
+        sub_cycle(0xd8, 2);
+        sub_cycle(0xd9, 4);
+        sub_cycle(0xda, 3);
+        sub_cycle(0xdc, 3);
+        sub_cycle(0xde, 2);
+        sub_cycle(0xdf, 4);
+
+        sub_cycle(0xe0, 3);
+        sub_cycle(0xe1, 3);
+        sub_cycle(0xe2, 2);
+        sub_cycle(0xe5, 4);
+        sub_cycle(0xe6, 2);
+        sub_cycle(0xe7, 4);
+        sub_cycle(0xe8, 4);
+        sub_cycle(0xe9, 1);
+        sub_cycle(0xea, 4);
+        sub_cycle(0xee, 2);
+        sub_cycle(0xef, 4);
+
+        sub_cycle(0xf0, 3);
+        sub_cycle(0xf1, 3);
+        sub_cycle(0xf2, 2);
+        sub_cycle(0xf3, 1);
+        sub_cycle(0xf5, 4);
+        sub_cycle(0xf6, 2);
+        sub_cycle(0xf7, 4);
+        sub_cycle(0xf8, 3);
+        sub_cycle(0xf9, 2);
+        sub_cycle(0xfa, 4);
+        sub_cycle(0xfb, 1);
+        sub_cycle(0xfe, 2);
+        sub_cycle(0xff, 4);
     }
 }

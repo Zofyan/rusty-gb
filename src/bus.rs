@@ -48,6 +48,7 @@ impl Bus {
     pub fn get(&self, address: u16) -> u8 {
         match address {
             0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
+            0xff44 => 0x90,
             _ => self.memory.get(address)
         }
     }
@@ -155,29 +156,29 @@ impl Bus {
         self.set(address, val);
     }
     pub fn set_int_enable_joypad(&mut self, value: bool){
-        let mut val =  self.get(0xFF0F);
+        let mut val =  self.get(INT_ENABLE);
         val.set_bit(4, value);
-        self.set(0xFFFF, val);
+        self.set(INT_ENABLE, val);
     }
     pub fn set_int_enable_serial(&mut self, value: bool){
-        let mut val =  self.get(0xFFFF);
+        let mut val =  self.get(INT_ENABLE);
         val.set_bit(3, value);
-        self.set(0xFFFF, val);
+        self.set(INT_ENABLE, val);
     }
     pub fn set_int_enable_timer(&mut self, value: bool){
-        let mut val =  self.get(0xFFFF);
+        let mut val =  self.get(INT_ENABLE);
         val.set_bit(2, value);
-        self.set(0xFFFF, val);
+        self.set(INT_ENABLE, val);
     }
     pub fn set_int_enable_lcd(&mut self, value: bool){
-        let mut val =  self.get(0xFFFF);
+        let mut val =  self.get(INT_ENABLE);
         val.set_bit(1, value);
-        self.set(0xFFFF, val);
+        self.set(INT_ENABLE, val);
     }
     pub fn set_int_enable_vblank(&mut self, value: bool){
-        let mut val =  self.get(0xFFFF);
+        let mut val =  self.get(INT_ENABLE);
         val.set_bit(0, value);
-        self.set(0xFFFF, val);
+        self.set(INT_ENABLE, val);
     }
     pub fn get_int_enable_joypad(&self) -> bool{
         self.get(0xFFFF).bit(4)
@@ -195,44 +196,44 @@ impl Bus {
         self.get(0xFFFF).bit(0)
     }
     pub fn set_int_request_joypad(&mut self, value: bool){
-        let mut val =  self.get(0xFF0F);
+        let mut val =  self.get(INT_REQUEST);
         val.set_bit(4, value);
-        self.set(0xFF0F, val);
+        self.set(INT_REQUEST, val);
     }
     pub fn set_int_request_serial(&mut self, value: bool){
-        let mut val =  self.get(0xFF0F);
+        let mut val =  self.get(INT_REQUEST);
         val.set_bit(3, value);
-        self.set(0xFF0F, val);
+        self.set(INT_REQUEST, val);
     }
     pub fn set_int_request_timer(&mut self, value: bool){
-        let mut val =  self.get(0xFF0F);
+        let mut val =  self.get(INT_REQUEST);
         val.set_bit(2, value);
-        self.set(0xFF0F, val);
+        self.set(INT_REQUEST, val);
     }
     pub fn set_int_request_lcd(&mut self, value: bool){
-        let mut val =  self.get(0xFF0F);
+        let mut val =  self.get(INT_REQUEST);
         val.set_bit(1, value);
-        self.set(0xFF0F, val);
+        self.set(INT_REQUEST, val);
     }
     pub fn set_int_request_vblank(&mut self, value: bool){
-        let mut val =  self.get(0xFF0F);
+        let mut val =  self.get(INT_REQUEST);
         val.set_bit(0, value);
-        self.set(0xFF0F, val);
+        self.set(INT_REQUEST, val);
     }
     pub fn get_int_request_joypad(&self) -> bool{
-        self.get(0xFF0F).bit(4)
+        self.get(INT_REQUEST).bit(4)
     }
     pub fn get_int_request_serial(&self) -> bool{
-        self.get(0xFF0F).bit(3)
+        self.get(INT_REQUEST).bit(3)
     }
     pub fn get_int_request_timer(&self) -> bool{
-        self.get(0xFF0F).bit(2)
+        self.get(INT_REQUEST).bit(2)
     }
     pub fn get_int_request_lcd(&self) -> bool{
-        self.get(0xFF0F).bit(1)
+        self.get(INT_REQUEST).bit(1)
     }
     pub fn get_int_request_vblank(&self) -> bool{
-        self.get(0xFF0F).bit(0)
+        self.get(INT_REQUEST).bit(0)
     }
     pub fn set_joypad_input(&mut self, bit: usize, value: bool){
         let mut val= self.get(0xFF00);
@@ -318,10 +319,10 @@ impl Bus {
         self.set(0xFF4A, value)
     }
     pub fn get_wx(&self) -> u8 {
-        self.get(0xFF4B)
+        self.get(0xFF4B) - 7
     }
     pub fn set_wx(&mut self, value: u8) {
-        self.set(0xFF4B, value)
+        self.set(0xFF4B, value + 7)
     }
     pub fn load_rom(&mut self, buffer: Vec<u8>) {
         self.memory.load_rom(buffer);

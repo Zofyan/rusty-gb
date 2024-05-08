@@ -13,8 +13,9 @@ mod output;
 
 fn main() {
     let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual")
-        .join("02-interrupts.gb").to_str().unwrap());
-        //.join("07-jr,jp,call,ret,rst.gb").to_str().unwrap());
+        //.join("02-interrupts.gb").to_str().unwrap());
+        //.join("09-op r,r.gb").to_str().unwrap());
+        .join("07-jr,jp,call,ret,rst.gb").to_str().unwrap());
         //.join("11-op a,(hl).gb").to_str().unwrap());
 
     emu.run(0, &mut io::stdout());

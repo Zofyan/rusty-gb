@@ -88,7 +88,8 @@ impl Ppu {
         }
         if self.ticks == 79 {
             self.ticks = 0;
-            self.state = PpuState::PixelTransfer
+            self.state = PpuState::PixelTransfer;
+            fetcher.start();
         }
     }
     fn pixel_tranfer(&mut self, bus: &mut Bus, fetcher: &mut Fetcher, output: &mut Box<dyn Output>) {
@@ -99,6 +100,7 @@ impl Ppu {
                 let pixel = *bus.fifo.first().unwrap();
                 bus.fifo.pop();
                 output.write_pixel(self.ticks, bus.get(LY) as u16, pixel);
+                fetcher.start();
             }
         } else{
             self.ticks = 0;

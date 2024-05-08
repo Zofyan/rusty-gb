@@ -319,7 +319,7 @@ impl Bus {
         self.set(0xFF4A, value)
     }
     pub fn get_wx(&self) -> u8 {
-        self.get(0xFF4B) - 7
+        self.get(0xFF4B).overflowing_sub(7).0
     }
     pub fn set_wx(&mut self, value: u8) {
         self.set(0xFF4B, value + 7)

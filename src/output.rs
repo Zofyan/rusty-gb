@@ -48,8 +48,3 @@ impl Output for LCD {
         }
     }
 }
-
-struct MyApp {
-    name: String,
-    age: u32,
-}

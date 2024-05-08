@@ -25,8 +25,9 @@ impl Fetcher  {
             state: FetcherState::FetchTileNumber,
         }
     }
-    pub fn reset(&mut self){
+    pub fn start(&mut self, tile_id: u16){
         self.ticks = 0;
+        self.tile_id = tile_id;
         self.x_position_counter = 0;
         self.pixel_data.fill(0);
         self.state = FetcherState::FetchTileNumber
@@ -77,7 +78,7 @@ impl Fetcher  {
         }
     }
     fn push_to_fifo(&mut self, bus: &mut Bus){
-        if bus.fifo.len() <= 8 {
+        if bus.fifo.is_empty() {
             for i in (0..=7).rev() {
                 bus.fifo.push(self.pixel_data[i]);
             }

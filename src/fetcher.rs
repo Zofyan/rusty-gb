@@ -16,7 +16,7 @@ pub struct Fetcher {
 }
 
 impl Fetcher  {
-    pub(crate) fn new(bus: &Bus) ->Fetcher {
+    pub fn new(bus: &Bus) ->Fetcher {
         Fetcher {
             ticks: 0,
             tile_id: 0,
@@ -50,7 +50,7 @@ impl Fetcher  {
                 self.x_position_counter as u16 + 32 * (((bus.get_ly() - bus.get_wy()) & 0xFF) as u16 / 8)
             },
             (_, _, _) => {
-                self.x_position_counter as u16 + ((bus.get_scx() as u16 / 8) & 0x1f) + 32 * (((bus.get_ly() + bus.get_scy()) & 0xFF) as u16 / 8)
+                self.x_position_counter as u16 + ((bus.get_scx() as u16 / 8) & 0x1f) + 32 * (((bus.get_ly().wrapping_add(bus.get_scy())) & 0xFF) as u16 / 8)
             },
         };
         self.pixel_data.fill(0);
@@ -66,6 +66,7 @@ impl Fetcher  {
             self.pixel_data[bit] = (data >> bit) & 1
         }
 
+        self.state = FetcherState::ReadTileData1
     }
     fn read_tile_data1(&mut self, bus: &Bus){
         let offset = match bus.get_ldlc_bg_window_tiles() {
@@ -76,9 +77,10 @@ impl Fetcher  {
         for bit in 0..=7 {
             self.pixel_data[bit] |= ((data >> bit) & 1) << 1
         }
+        self.state = FetcherState::PushToFIFO
     }
     fn push_to_fifo(&mut self, bus: &mut Bus){
-        if bus.fifo.is_empty() {
+        if bus.fifo.len() <= 8 {
             for i in (0..=7).rev() {
                 bus.fifo.push(self.pixel_data[i]);
             }

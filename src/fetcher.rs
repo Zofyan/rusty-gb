@@ -25,10 +25,10 @@ impl Fetcher  {
             state: FetcherState::FetchTileNumber,
         }
     }
-    pub fn start(&mut self, tile_id: u16){
+    pub fn start(&mut self, x: u8){
         self.ticks = 0;
-        self.tile_id = tile_id;
-        self.x_position_counter = 0;
+        self.tile_id = 0;
+        self.x_position_counter = x;
         self.pixel_data.fill(0);
         self.state = FetcherState::FetchTileNumber
     }
@@ -82,7 +82,8 @@ impl Fetcher  {
             for i in (0..=7).rev() {
                 bus.fifo.push(self.pixel_data[i]);
             }
-
+            self.x_position_counter += 1;
+            self.state = FetcherState::FetchTileNumber;
         }
     }
 }

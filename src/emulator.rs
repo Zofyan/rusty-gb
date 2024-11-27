@@ -8,23 +8,22 @@ use crate::fetcher::Fetcher;
 use crate::output::{Output, LCD, Dummy};
 use crate::ppu::{Ppu, PpuState};
 
-pub struct Emulator {
+pub struct Emulator<O: Output> {
     cpu: Cpu,
     bus: Bus,
     fetcher: Fetcher,
     ppu: Ppu,
-    output: Box<dyn Output>,
+    output: O,
 }
 
-impl Emulator {
-    pub fn new(rom_path: &str) -> Emulator {
+impl<O: Output> Emulator<O> {
+    pub fn new(rom_path: &str, output: O) -> Self {
         let rom = File::open(rom_path).expect("Could not open rom");
 
         let mut bus = Bus::new();
         let cpu = Cpu::new();
         let fetcher = Fetcher::new(&bus);
         let ppu = Ppu { state: PpuState::OAMFetch, oambuffer: Vec::new(), ticks: 0 };
-        let mut output = Box::new(Dummy::new(20f64));
 
         let mut reader = BufReader::new(rom);
         let mut buffer = Vec::new();

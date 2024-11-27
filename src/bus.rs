@@ -48,7 +48,6 @@ impl Bus {
     pub fn get(&self, address: u16) -> u8 {
         match address {
             0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
-            0xff44 => 0x90,
             _ => self.memory.get(address)
         }
     }

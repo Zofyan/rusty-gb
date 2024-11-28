@@ -16,7 +16,6 @@ pub struct Fetcher {
     line_index: u8,
     tile_line: u8,
     map_address: u16,
-    x_position_counter: u8,
     pixel_data: [u8; 16],
     oams: Vec<OAM>,
     fifo_bg: Vec<u8>,
@@ -25,12 +24,12 @@ pub struct Fetcher {
 }
 
 impl Fetcher  {
-    pub fn new(bus: &Bus, map_address: u16, tile_line: u8) ->Fetcher {
+    pub fn new(bus: &Bus) ->Fetcher {
         Fetcher {
             ticks: 0,
             tile_index: 0,
-            map_address: map_address,
-            tile_line: tile_line,
+            map_address: 0,
+            tile_line: 0,
             tile_id: 0,
             pixel_data: [0; 16],
             oams: vec![],
@@ -39,13 +38,6 @@ impl Fetcher  {
             state: FetcherState::ReadTileID,
             line_index: 0,
         }
-    }
-    pub fn start(&mut self, x: u8){
-        self.ticks = 0;
-        self.tile_index = 0;
-        self.x_position_counter = x;
-        self.pixel_data.fill(0);
-        self.state = FetcherState::ReadTileID
     }
     pub fn tick(&mut self, bus: &mut Bus) {
         self.ticks += 1;
@@ -58,7 +50,7 @@ impl Fetcher  {
         }
     }
 
-    fn reset(&mut self, mmap_addr: u16, tile_line: u8, bus: &Bus){
+    pub fn reset(&mut self, mmap_addr: u16, tile_line: u8, bus: &Bus){
         self.tile_index = bus.get_scx() % 8;
         self.line_index = (bus.get_scy() / 8 + bus.get_ly() / 8) % 32;
         self.map_address = mmap_addr;
@@ -76,6 +68,7 @@ impl Fetcher  {
                 self.x_position_counter as u16 + ((bus.get_scx() as u16 / 8) & 0x1f) + 32 * (((bus.get_ly().wrapping_add(bus.get_scy())) & 0xFF) as u16 / 8)
             },
         };*/
+        self.tile_id = bus.get(self.map_address + self.tile_index as u16 + self.line_index as u16 * 32);
         self.pixel_data.fill(0);
         self.state = FetcherState::ReadTileData0
     }

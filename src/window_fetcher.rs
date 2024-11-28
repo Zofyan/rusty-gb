@@ -26,12 +26,12 @@ pub struct WindowFetcher {
 }
 
 impl WindowFetcher {
-    pub(crate) fn new(bus: &Bus, map_address: u16, tile_line: u8) -> WindowFetcher {
+    pub(crate) fn new(bus: &Bus) -> WindowFetcher {
         WindowFetcher {
             ticks: 0,
             tile_index: 0,
-            map_address: map_address,
-            tile_line: tile_line,
+            map_address: 0,
+            tile_line: 0,
             tile_id: 0,
             pixel_data: [0; 16],
             oams: vec![],

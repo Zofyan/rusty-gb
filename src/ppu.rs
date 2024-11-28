@@ -1,7 +1,7 @@
-use bitfield::Bit;
 use crate::bus::{Bus, OAM};
 use crate::fetcher::Fetcher;
 use crate::output::Output;
+use bitfield::Bit;
 
 pub struct OAM {
     address: u16,
@@ -78,15 +78,22 @@ impl Ppu {
         }
     }
     fn oam_fetch(&mut self, bus: &mut Bus, fetcher: &mut Fetcher, output: &mut dyn Output) {
-        if self.ticks % 2 == 0 { return; }
+        if self.ticks % 2 == 0 {
+            return;
+        }
         let oam = OAM::new(0xFE00 + self.ticks, &bus);
-        if oam.x > 0 && bus.get_ly() + 16 >= oam.y && (bus.get_ly() < oam.y + 8) && self.oambuffer.len() < 10 { //TODO: add check for sprite mode
+        if oam.x > 0
+            && bus.get_ly() + 16 >= oam.y
+            && (bus.get_ly() < oam.y + 8)
+            && self.oambuffer.len() < 10
+        {
+            //TODO: add check for sprite mode
             self.oambuffer.push(oam);
         }
         if self.ticks == 79 {
             self.ticks = 0;
             self.state = PpuState::PixelTransfer;
-            fetcher.start(0);
+            fetcher.reset(0);
         }
     }
     fn pixel_tranfer(&mut self, bus: &mut Bus, fetcher: &mut Fetcher, output: &mut dyn Output) {
@@ -98,13 +105,16 @@ impl Ppu {
                 bus.fifo.pop();
                 output.write_pixel(self.ticks, bus.get_ly() as u16, pixel);
             }
-        } else{
+        } else {
             self.ticks = 0;
             self.state = PpuState::HBlank;
         }
     }
     fn hblank(&mut self, bus: &mut Bus, fetcher: &mut Fetcher, output: &mut dyn Output) {
-        if self.ticks == 455 - 80 - (160 + bus.get_scx() % 8) as u16 {
+        if self.ticks != 456 {
+            return;
+        }
+        self.ticks = 0;
             bus.set_ly(bus.get_ly() + 1);
             if bus.get_ly() == bus.get_lyc() {
                 bus.setb(false, false, 2, 0xFF41);
@@ -112,29 +122,28 @@ impl Ppu {
             } else {
                 bus.reset(false, false, 2, 0xFF41);
             }
-            self.ticks = 0;
             if bus.get_ly() == 144 {
                 bus.set_int_request_vblank(true);
                 self.state = PpuState::VBlank
             } else {
                 self.state = PpuState::OAMFetch
             }
-        }
     }
     fn vblank(&mut self, bus: &mut Bus, fetcher: &mut Fetcher, output: &mut dyn Output) {
-        if self.ticks == 456{
-            self.ticks = 0;
-            bus.set_ly(bus.get_ly() + 1);
+        if self.ticks == 456 {
+            return;
+        }
+        self.ticks = 0;
+        bus.set_ly(bus.get_ly() + 1);
 
+        if bus.get_ly() == 153 {
+            bus.set_ly(0);
             bus.set_bit(0xFF41, 2, bus.get_ly() == bus.get_lyc());
             if bus.get_ly() == bus.get_lyc() {
                 bus.set_int_request_lcd(true);
             }
-            if bus.get_ly() == 153 {
-                output.refresh();
-                bus.set_ly(0);
-                self.state = PpuState::OAMFetch
-            }
+            output.refresh();
+            self.state = PpuState::OAMFetch
         }
     }
 }

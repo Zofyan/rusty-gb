@@ -11,6 +11,7 @@ mod memory;
 mod ppu;
 mod fetcher;
 mod output;
+mod window_fetcher;
 
 fn main() {
     let mut output = LCD::new(5f64);

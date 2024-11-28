@@ -7,6 +7,7 @@ use crate::cpu::Cpu;
 use crate::fetcher::Fetcher;
 use crate::output::{Output, LCD, Dummy};
 use crate::ppu::{Ppu, PpuState};
+use crate::window_fetcher::WindowFetcher;
 
 pub struct Emulator<O: Output> {
     cpu: Cpu,
@@ -23,6 +24,7 @@ impl<O: Output> Emulator<O> {
         let mut bus = Bus::new();
         let cpu = Cpu::new();
         let fetcher = Fetcher::new(&bus);
+        let window_fetcher = WindowFetcher::new(&bus);
         let ppu = Ppu { state: PpuState::OAMFetch, oambuffer: Vec::new(), ticks: 0 };
 
         let mut reader = BufReader::new(rom);

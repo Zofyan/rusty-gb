@@ -25,22 +25,21 @@ impl Output for LCD {
         self.pixels.push([x, y, color as u16])
     }
     fn refresh(&mut self) {
+        let colors = [0.0, 0.33, 0.66, 1.0];
         let Some(event) = self.window.next() else {
             panic!("test")
         };
         self.window.draw_2d(&event, |context, graphics, _device| {
-            clear([0.0; 4], graphics);
+            clear([1.0; 4], graphics);
         });
         self.window.draw_2d(&event, |context, graphics, _device| {
             for pixel in &self.pixels {
-                //println!("x: {}, y: {}", pixel[0], pixel[1]);
+                println!("x: {}, y: {}, color: {}", pixel[0], pixel[1], pixel[2]);
                 rectangle(
-                    [
-                        (1.0) as ColorComponent,
-                        (1.0) as ColorComponent,
-                        (1.0) as ColorComponent,
-                        1.0,
-                    ], // red
+                    [colors[pixel[2] as usize] as ColorComponent,
+                        colors[pixel[2] as usize] as ColorComponent,
+                        colors[pixel[2] as usize] as ColorComponent, 1.0], // red
+
                     [
                         pixel[0] as f64 * self.size,
                         pixel[1] as f64 * self.size,

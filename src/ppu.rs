@@ -3,9 +3,6 @@ use crate::bus::{Bus, OAM};
 use crate::fetcher::Fetcher;
 use crate::output::Output;
 
-const LY: u16 = 0xFF44;
-const LYC: u16 = 0xFF45;
-
 pub struct OAM {
     address: u16,
     y: u8,

@@ -14,12 +14,11 @@ mod output;
 mod window_fetcher;
 
 fn main() {
-    let mut output = LCD::new(5f64);
-    let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual")
-        //.join("02-interrupts.gb").to_str().unwrap());
-        //.join("09-op r,r.gb").to_str().unwrap());
-        .join("07-jr,jp,call,ret,rst.gb").to_str().unwrap(), output);
-        //.join("11-op a,(hl).gb").to_str().unwrap());
+    let output = LCD::new(5f64);
+    let mut emu = Emulator::new(
+        Path::new("test-roms").join("Tetris.gb").to_str().unwrap(),
+        output
+    );
 
     emu.run(0, &mut io::stdout());
 }

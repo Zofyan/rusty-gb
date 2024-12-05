@@ -2,7 +2,7 @@ use piston_window::types::ColorComponent;
 use piston_window::*;
 
 pub trait Output {
-    fn write_pixel(&mut self, _: u16, _: u16, _: u8) {}
+    fn write_pixel(&mut self, _: u16, _: u16, _: u8, _: bool) {}
     fn refresh(&mut self) {}
 }
 
@@ -21,11 +21,14 @@ pub struct LCD {
 }
 
 impl Output for LCD {
-    fn write_pixel(&mut self, x: u16, y: u16, color: u8) {
-        self.pixels.push([x, y, color as u16])
+    fn write_pixel(&mut self, x: u16, y: u16, color: u8, pallette: bool) {
+        let colors = match pallette {
+            false => [0, 33, 66, 100],
+            true => [100, 66, 33, 0],
+        };
+        self.pixels.push([x, y, colors[color as usize]])
     }
     fn refresh(&mut self) {
-        let colors = [0.0, 0.33, 0.66, 1.0];
         let Some(event) = self.window.next() else {
             panic!("test")
         };
@@ -34,12 +37,13 @@ impl Output for LCD {
         });
         self.window.draw_2d(&event, |context, graphics, _device| {
             for pixel in &self.pixels {
-                println!("x: {}, y: {}, color: {}", pixel[0], pixel[1], pixel[2]);
                 rectangle(
-                    [colors[pixel[2] as usize] as ColorComponent,
-                        colors[pixel[2] as usize] as ColorComponent,
-                        colors[pixel[2] as usize] as ColorComponent, 1.0], // red
-
+                    [
+                        (pixel[2] / 100) as ColorComponent,
+                        (pixel[2] / 100) as ColorComponent,
+                        (pixel[2] / 100) as ColorComponent,
+                        1.0,
+                    ], // red
                     [
                         pixel[0] as f64 * self.size,
                         pixel[1] as f64 * self.size,

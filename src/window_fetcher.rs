@@ -20,13 +20,13 @@ pub struct WindowFetcher {
     line_index: u8,
     pixel_data: [u8; 16],
     oams: Vec<OAM>,
-    fifo_bg: Vec<u8>,
+    pub(crate) fifo_bg: Vec<u8>,
     fifo_sprite: Vec<u8>,
     state: WindowFetcherState,
 }
 
 impl WindowFetcher {
-    pub(crate) fn new(bus: &Bus) -> WindowFetcher {
+    pub fn new() -> WindowFetcher {
         WindowFetcher {
             ticks: 0,
             tile_index: 0,
@@ -70,7 +70,7 @@ impl WindowFetcher {
         for bit in 0..=7 {
             match self.state {
                 ReadTileData0 => self.pixel_data[bit] = (value >> bit) & 1,
-                ReadTileData1 => self.pixel_data[bit] |= (value >> bit) << 1,
+                ReadTileData1 => self.pixel_data[bit] |= ((value >> bit) & 1 ) << 1,
                 _ => {
                     panic!("invalid fetch state");
                 }
@@ -86,9 +86,9 @@ impl WindowFetcher {
         }
     }
     fn push_to_fifo(&mut self, bus: &mut Bus) {
-        if bus.fifo.len() <= 8 {
+        if self.fifo_bg.len() <= 8 {
             for i in (0..=7).rev() {
-                bus.fifo.push(self.pixel_data[i]);
+                self.fifo_bg.push(self.pixel_data[i]);
             }
             self.tile_index = (self.tile_index + 1) % 32;
             self.state = ReadTileID;
@@ -100,7 +100,7 @@ impl WindowFetcher {
         self.state = ReadTileData0
     }
 
-    fn reset(&mut self, mmap_addr: u16, tile_line: u8){
+    pub fn reset(&mut self, mmap_addr: u16, tile_line: u8){
         self.tile_index = 0;
         self.map_address = mmap_addr;
         self.tile_line = tile_line;

@@ -12,7 +12,6 @@ use crate::window_fetcher::WindowFetcher;
 pub struct Emulator<O: Output> {
     cpu: Cpu,
     bus: Bus,
-    fetcher: Fetcher,
     ppu: Ppu,
     output: O,
 }
@@ -23,9 +22,7 @@ impl<O: Output> Emulator<O> {
 
         let mut bus = Bus::new();
         let cpu = Cpu::new();
-        let fetcher = Fetcher::new(&bus);
-        let window_fetcher = WindowFetcher::new(&bus);
-        let ppu = Ppu { state: PpuState::OAMFetch, oambuffer: Vec::new(), ticks: 0 };
+        let ppu = Ppu::new();
 
         let mut reader = BufReader::new(rom);
         let mut buffer = Vec::new();
@@ -48,7 +45,7 @@ impl<O: Output> Emulator<O> {
         bus.set_int_request_vblank(false);
         bus.set_int_request_timer(false);
 
-        Emulator { cpu, bus, fetcher, ppu, output }
+        Emulator { cpu, bus, ppu, output }
     }
 
     pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
@@ -82,7 +79,7 @@ impl<O: Output> Emulator<O> {
             timer += cycles as u64;
 
             for _ in 1..=cycles * 4 {
-                self.ppu.tick(&mut self.bus, &mut self.fetcher, &mut self.output);
+                self.ppu.tick(&mut self.bus, &mut self.output);
             }
             for _ in 1..=cycles {
                 if timer % 64 == 0{

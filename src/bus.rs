@@ -2,6 +2,7 @@
 
 use bitfield::{Bit, BitMut};
 use crate::memory::Memory;
+use crate::ppu::OAM;
 
 pub const ROM_0: u16 = 0x0000;
 pub const ROM_0_END: u16 = 0x3FFF;
@@ -39,15 +40,16 @@ pub const INT_ENABLE_SIZE: u16 = INT_ENABLE_END - INT_ENABLE + 1;
 pub struct Bus {
     memory: Memory,
     pub fifo: Vec<u8>,
+    eram_enable: bool
 }
 
 impl Bus {
     pub fn new() -> Bus {
-        Bus { memory: Memory::new(), fifo: vec![] }
+        Bus { memory: Memory::new(), fifo: vec![], eram_enable: false }
     }
     pub fn get(&self, address: u16) -> u8 {
         match address {
-            0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
+            0xe000..=0xfdff | 0xfea0..=0xfeff => 0xFF,
             _ => self.memory.get(address)
         }
     }
@@ -61,8 +63,11 @@ impl Bus {
     }
     pub fn set(&mut self, address: u16, value: u8) {
         match address {
+            ..=0x1FFF => { self.eram_enable = 0x0A == (value & 0x0F)},
+            ..=0x3FFF => { },
+            ..=0x5FFF => { panic!("banks not supported") },
             ..=ROM_N_END => panic!("READ-ONLY memory!!!"),
-            0xe000..=0xfdff | 0xfea0..=0xfeff => panic!("Nintendo says no!!!"),
+            0xe000..=0xfdff | 0xfea0..=0xfeff => {},
             0xFF04 => self.memory.set(address, 0),
             _ => self.memory.set(address, value)
         }
@@ -263,6 +268,28 @@ impl Bus {
     pub fn get_ldlc_lcd_ppu_enable(&self) -> bool {
         self.get(0xFF40).bit(7)
     }
+    pub fn get_ldlc_stat_mode(&self) -> u8 {
+        self.get(0xFF40) & 0b11
+    }
+    pub fn get_ldlc_stat_lyc_ly_flag(&self) -> bool {
+        self.get(0xFF40).bit(2)
+    }
+    pub fn get_ldlc_stat_hblank_stat_int(&self) -> bool {
+        self.get(0xFF40).bit(3)
+    }
+    pub fn get_ldlc_stat_vblank_stat_int(&self) -> bool {
+        self.get(0xFF40).bit(4)
+    }
+    pub fn get_ldlc_stat_oam_stat_int(&self) -> bool {
+        self.get(0xFF40).bit(5)
+    }
+    pub fn get_ldlc_stat_lyc_ly_stat_int(&self) -> bool {
+        self.get(0xFF40).bit(6)
+    }
+    pub fn get_ldlc_x(&self) -> bool {
+        self.get(0xFF40).bit(7)
+    }
+
     pub fn set_ldlc_bd_window_enable(&mut self, value: bool) {
         self.set_bit(0xFF40, 0, value);
     }

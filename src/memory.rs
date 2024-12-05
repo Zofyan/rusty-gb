@@ -11,12 +11,14 @@ pub struct Memory {
     io_registers: [u8; IO_REGISTERS_SIZE as usize],
     hram: [u8; HRAM_SIZE as usize],
     int_enable: [u8; INT_ENABLE_SIZE as usize],
+    extra_rom: Vec<[u8; ROM_N_SIZE as usize]>,
+    extra_wram: Vec<[u8; WRAM_N_SIZE as usize]>
 }
 
 
 impl Memory {
     pub fn new() -> Memory {
-        Memory { rom_0: [0; ROM_0_SIZE as usize], rom_n: [0; ROM_N_SIZE as usize], vram: [0; VRAM_SIZE as usize], eram: [0; ERAM_SIZE as usize], wram_0: [0; WRAM_0_SIZE as usize], wram_n: [0; WRAM_N_SIZE as usize], oam: [0; OAM_SIZE as usize], io_registers: [0; IO_REGISTERS_SIZE as usize], hram: [0; HRAM_SIZE as usize], int_enable: [0; INT_ENABLE_SIZE as usize] }
+        Memory { rom_0: [0; ROM_0_SIZE as usize], rom_n: [0; ROM_N_SIZE as usize], vram: [0; VRAM_SIZE as usize], eram: [0; ERAM_SIZE as usize], wram_0: [0; WRAM_0_SIZE as usize], wram_n: [0; WRAM_N_SIZE as usize], oam: [0; OAM_SIZE as usize], io_registers: [0; IO_REGISTERS_SIZE as usize], hram: [0; HRAM_SIZE as usize], int_enable: [0; INT_ENABLE_SIZE as usize], extra_rom: vec![], extra_wram: vec![] }
     }
     pub fn get(&self, address: u16) -> u8 {
         match address {

@@ -48,8 +48,7 @@ impl Cpu {
                  bus.get(self.get_pc() + 3)
         )
     }
-    pub fn step(&mut self, mut bus: &mut Bus) -> usize {
-        //self.log(&bus);
+    pub fn step(&mut self, mut bus: &mut Bus, log: bool) -> usize {
         if self.halted{
             if bus.get(INT_ENABLE) & bus.get(INT_REQUEST) > 0{
                 self.halted = false;
@@ -76,6 +75,7 @@ impl Cpu {
             !self.push(inst, &mut bus) {
             panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc())
         }
+        //if log { self.log(&bus) };
         //if self.counter % 100 == 0 {
         //    println!("{}", self.counter);
         //}
@@ -87,7 +87,7 @@ impl Cpu {
         self.counter += _count
     }
     fn _pc(&mut self, count: u16) { self.set_pc(self.get_pc() + count) }
-    pub fn interrupt(&mut self, bus: &mut Bus, address: u16) -> usize {
+    pub fn interrupt(&mut self, mut bus: &mut Bus, address: u16) -> usize {
         self._cycles(2);
         self._push(self.get_pc(), bus);
         self._cycles(2);
@@ -95,7 +95,7 @@ impl Cpu {
         self._cycles(1);
         self.halted = false;
         self.set_ime(false);
-        5
+        5 + self.step(&mut bus, true)
     }
     fn get_flag_c(&self) -> bool {
         self.f.get_bit(4)
@@ -200,7 +200,7 @@ impl Cpu {
     fn misc(&mut self, inst: (u8, u8), mut bus: &mut Bus) -> bool {
         match inst {
             (0, 0) => {}
-            (1, 0) => panic!("Stopped"),
+            (1, 0) => { self._pc(1) },
             (7, 6) => self.halted = true,
             (0xf, 3) => self.set_ime(false),
             (0xf, 0xb) => self.set_ime(true),
@@ -553,8 +553,8 @@ impl Cpu {
             _ => return false
         };
         match inst {
-            (2, 2 | 0xa) => self.set_hl(self.get_hl() + 1),
-            (3, 2 | 0xa) => self.set_hl(self.get_hl() - 1),
+            (2, 2 | 0xa) => self.set_hl(self.get_hl().wrapping_add(1)),
+            (3, 2 | 0xa) => self.set_hl(self.get_hl().wrapping_sub(1)),
             _ => ()
         }
         match inst {
@@ -1021,7 +1021,7 @@ mod tests {
         bus.set(cpu.get_pc() + 1, 0xBB);
         bus.set(cpu.get_pc() + 2, 0xBB);
         cpu.counter = 0;
-        cpu.step(&mut bus);
+        cpu.step(&mut bus, false);
         assert_eq!(cpu.counter, cycles);
     }
     #[test]

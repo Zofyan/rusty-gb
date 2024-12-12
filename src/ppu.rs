@@ -302,6 +302,7 @@ impl Ppu {
                 self.oambuffer[i] = OAM::empty()
             }
             self.state = PpuState::OAMFetch;
+            println!("doing refresh");
             output.refresh();
             /*if self.timer + 16 > SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() {
                 println!("waiting {} ms", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() - self.timer);

@@ -71,10 +71,10 @@ impl<O: Output> Emulator<O> {
                         self.bus.set_int_request_joypad(false);
                         self.cpu.interrupt(&mut self.bus, 0x60)
                     } else {
-                        self.cpu.step(&mut self.bus)
+                        self.cpu.step(&mut self.bus, true)
                     }
                 }
-                false => self.cpu.step(&mut self.bus)
+                false => self.cpu.step(&mut self.bus, true)
             };
             timer += cycles as u64;
 
@@ -107,6 +107,7 @@ impl<O: Output> Emulator<O> {
 
             if self.bus.get(0xFF02) == 0x81 {
                 write!(stdout, "{}", self.bus.get(0xFF01) as char).expect("Couldn't write");
+                stdout.flush().expect("Couldn't flush");
                 self.bus.set(0xFF02, 0);
             }
             if count % 1024 == 0 {

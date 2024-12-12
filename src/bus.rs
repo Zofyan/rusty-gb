@@ -37,6 +37,13 @@ pub const IO_REGISTERS_SIZE: u16 = IO_REGISTERS_END - IO_REGISTERS + 1;
 pub const HRAM_SIZE: u16 = HRAM_END - HRAM + 1;
 pub const INT_ENABLE_SIZE: u16 = INT_ENABLE_END - INT_ENABLE + 1;
 
+enum MBC {
+    MBC1,
+    MBC2,
+    MBC3,
+    MBC4,
+    MBC5,
+}
 pub struct Bus {
     memory: Memory,
     pub fifo: Vec<u8>,
@@ -64,6 +71,7 @@ impl Bus {
     pub fn set(&mut self, address: u16, value: u8) {
         match address {
             ..=0x1FFF => { self.eram_enable = 0x0A == (value & 0x0F)},
+            ..=0x2FFF => { self.memory.switch_rom(value) },
             ..=0x3FFF => { },
             ..=0x5FFF => { panic!("banks not supported") },
             ..=ROM_N_END => panic!("READ-ONLY memory!!!"),

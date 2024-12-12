@@ -11,7 +11,7 @@ piston = "0.55.0"
 piston_window = "0.131.0"
 rand = "0.9.0-alpha.1"
 time = "0.3.36"
-libm = "0.2.11"
+macroquad = "0.4.13"
 
 [profile.dev]
 overflow-checks = true

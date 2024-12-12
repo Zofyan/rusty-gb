@@ -1,7 +1,7 @@
 use std::io;
 use std::path::Path;
 use crate::emulator::Emulator;
-use crate::output::LCD;
+use crate::output::{Dummy, Terminal, LCD};
 
 mod cpu;
 mod bus;
@@ -13,10 +13,11 @@ mod fetcher;
 mod output;
 mod window_fetcher;
 
+
 fn main() {
     let output = LCD::new(5f64);
     let mut emu = Emulator::new(
-        Path::new("test-roms").join("Tetris.gb").to_str().unwrap(),
+        Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("cpu_instrs.gb").to_str().unwrap(),
         output
     );
 

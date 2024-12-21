@@ -2,6 +2,7 @@ use std::io;
 use std::path::Path;
 use crate::emulator::Emulator;
 use crate::output::{Dummy, Terminal, LCD};
+use macroquad::prelude::*;
 
 mod cpu;
 mod bus;
@@ -14,14 +15,15 @@ mod output;
 mod window_fetcher;
 
 
-fn main() {
+#[macroquad::main("BasicShapes")]
+async fn main() {
     let output = LCD::new(5f64);
     let mut emu = Emulator::new(
         Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("cpu_instrs.gb").to_str().unwrap(),
         output
     );
 
-    emu.run(0, &mut io::stdout());
+    emu.run(0, &mut io::stdout()).await;
 }
 
 #[cfg(test)]

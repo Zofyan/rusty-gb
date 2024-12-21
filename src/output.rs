@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use macroquad::prelude::*;
 
 
@@ -26,8 +27,10 @@ impl Output for LCD {
         };
         self.pixels.push([50, 50, 33])
     }
-    #[macroquad::main("BasicShapes")]
+
     fn refresh(&mut self) {
+        clear_background(RED);
+        //draw_rectangle(screen_width() / 2.0 - 60.0, 100.0, 120.0, 60.0, GREEN);
         for p in self.pixels.iter() {
 
         }

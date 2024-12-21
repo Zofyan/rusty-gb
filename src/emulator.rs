@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::{io, thread, time};
 use bitfield::Bit;
+use macroquad::prelude::next_frame;
 use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::fetcher::Fetcher;
@@ -48,11 +49,12 @@ impl<O: Output> Emulator<O> {
         Emulator { cpu, bus, ppu, output }
     }
 
-    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
+    pub async fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
         let ten_millis = time::Duration::from_millis(1);
         let mut count: usize = 0;
         let mut timer: u64 = 0;
         loop {
+            for _ in 0..max_cycles {
             let cycles = match self.cpu.get_ime() {
                 true => {
                     if self.bus.get_int_enable_vblank() && self.bus.get_int_request_vblank() {
@@ -82,7 +84,7 @@ impl<O: Output> Emulator<O> {
                 self.ppu.tick(&mut self.bus, &mut self.output);
             }
             for _ in 1..=cycles {
-                if timer % 64 == 0{
+                if timer % 64 == 0 {
                     self.bus.set(0xFF04, self.bus.get(0xFF04).overflowing_add(1).0);
                 }
 
@@ -113,10 +115,12 @@ impl<O: Output> Emulator<O> {
             if count % 1024 == 0 {
                 //thread::sleep(ten_millis);
             }
+        }
             count += 1;
             if count > max_cycles && max_cycles != 0 {
                 break;
             }
+        next_frame().await
         }
     }
 }

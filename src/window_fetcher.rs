@@ -56,10 +56,17 @@ impl WindowFetcher {
     }
 
     fn read_tile_data(&mut self, bus: &Bus) {
-        let offset = match bus.get_ldlc_window_tilemap() {
+        let offset = match bus.get_ldlc_bg_window_tiles() {
             true => 0x8000 + self.tile_id as u16 * 16,
-            false => 0x9000u16.wrapping_add_signed(self.tile_id as i16 * 16),
+            false => {
+                if self.tile_id <= 127 {
+                    0x9000 + self.tile_id as u16 * 16
+                } else {
+                    0x8000 + self.tile_id as u16 * 16
+                }
+            }
         };
+
         let offset2 = match self.state {
             ReadTileData0 => 0,
             ReadTileData1 => 1,
@@ -69,8 +76,8 @@ impl WindowFetcher {
         let value = bus.get(address);
         for bit in 0..=7 {
             match self.state {
-                ReadTileData0 => self.pixel_data[bit] = (value >> bit) & 1,
-                ReadTileData1 => self.pixel_data[bit] |= ((value >> bit) & 1 ) << 1,
+                ReadTileData0 => self.pixel_data[7 - bit] = (value >> bit) & 1,
+                ReadTileData1 => self.pixel_data[7 - bit] |= ((value >> bit) & 1 ) << 1,
                 _ => {
                     panic!("invalid fetch state");
                 }

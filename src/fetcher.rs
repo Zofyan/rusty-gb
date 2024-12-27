@@ -1,4 +1,3 @@
-use piston_window::math::add;
 use crate::bus::{Bus, VRAM};
 use crate::ppu::OAM;
 
@@ -19,6 +18,7 @@ pub struct Fetcher {
     map_address: u16,
     tile_line: u8,
     line_index: u8,
+    pub tiles_set: bool,
     pixel_data: [u8; 16],
     oams: Vec<OAM>,
     pub fifo_bg: Vec<u8>,
@@ -42,6 +42,7 @@ impl Fetcher {
             fifo_sprite: vec![],
             state: FetcherState::ReadTileID,
             line_index: 0,
+            tiles_set: true,
         }
     }
     pub fn tick(&mut self, bus: &mut Bus) {
@@ -59,9 +60,16 @@ impl Fetcher {
     }
 
     fn read_tile_data(&mut self, bus: &Bus) {
-        let offset = match bus.get_ldlc_window_tilemap() {
+        self.tiles_set = bus.get_ldlc_bg_window_tiles();
+        let offset = match self.tiles_set {
             true => 0x8000 + self.tile_id as u16 * 16,
-            false => 0x9000u16.wrapping_add_signed(self.tile_id as i16 * 16),
+            false => {
+                if self.tile_id <= 127 {
+                    0x9000 + self.tile_id as u16 * 16
+                } else {
+                    0x8000 + self.tile_id as u16 * 16
+                }
+            }
         };
         let offset2 = match self.state {
             FetcherState::ReadTileData0 => 0,
@@ -69,12 +77,11 @@ impl Fetcher {
             _ => unreachable!(),
         };
         let address = offset + offset2 + self.tile_line as u16 * 2;
-        let value = bus.get(address);
+        let value = bus._get(address);
         for bit in 0..=7 {
-
             match self.state {
-                FetcherState::ReadTileData0 => self.pixel_data[bit] = (value >> bit) & 1,
-                FetcherState::ReadTileData1 => self.pixel_data[bit] |= ((value >> bit) & 1 ) << 1,
+                FetcherState::ReadTileData0 => self.pixel_data[7 - bit] = (value >> bit) & 1,
+                FetcherState::ReadTileData1 => self.pixel_data[7 - bit] |= ((value >> bit) & 1 ) << 1,
                 _ => {
                     panic!("invalid fetch state");
                 }
@@ -99,7 +106,7 @@ impl Fetcher {
         }
     }
     fn read_tile_id(&mut self, bus: &Bus) {
-        self.tile_id = bus.get(self.map_address + self.tile_index as u16 + self.line_index as u16 * 32);
+        self.tile_id = bus._get(self.map_address + self.tile_index as u16 + self.line_index as u16 * 32);
         self.pixel_data.fill(0);
         self.state =FetcherState:: ReadTileData0
     }

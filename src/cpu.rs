@@ -31,7 +31,7 @@ impl Cpu {
     }
 
     fn log(&self, bus: &Bus) {
-        println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})",
+        println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X}) LY: {:02X}",
                  self.a.get(),
                  self.f.get(),
                  self.b.get(),
@@ -45,10 +45,13 @@ impl Cpu {
                  bus.get(self.get_pc()),
                  bus.get(self.get_pc() + 1),
                  bus.get(self.get_pc() + 2),
-                 bus.get(self.get_pc() + 3)
+                 bus.get(self.get_pc() + 3),
+                 bus.get(0xFF44)
         )
     }
     pub fn step(&mut self, mut bus: &mut Bus, log: bool) -> usize {
+        //self.log(bus);
+
         if self.halted{
             if bus.get(INT_ENABLE) & bus.get(INT_REQUEST) > 0{
                 self.halted = false;
@@ -59,7 +62,6 @@ impl Cpu {
         let opcode = bus.get(self.get_pc());
         let inst = (opcode >> 4, opcode & 0xF);
         let cycles = self.counter;
-        //println!("Executing {:#02x}({:#01x}, {:#01x}) at {:#02x}", opcode, inst.0, inst.1, self.get_pc());
         if !self.load(inst, &mut bus) &&
             !self.alu(inst, &mut bus) &&
             !self.load16(inst, &mut bus) &&
@@ -75,11 +77,6 @@ impl Cpu {
             !self.push(inst, &mut bus) {
             panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc())
         }
-        //if log { self.log(&bus) };
-        //if self.counter % 100 == 0 {
-        //    println!("{}", self.counter);
-        //}
-        //self.counter = 0;
         self.counter - cycles
     }
 

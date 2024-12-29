@@ -41,22 +41,57 @@ pub const IO_REGISTERS_SIZE: u16 = IO_REGISTERS_END - IO_REGISTERS + 1;
 pub const HRAM_SIZE: u16 = HRAM_END - HRAM + 1;
 pub const INT_ENABLE_SIZE: u16 = INT_ENABLE_END - INT_ENABLE + 1;
 
+pub struct MMAPRegisters {
+    ly: u8,
+    joypad: u8,
+    scy: u8,
+    scx: u8,
+    lcdc: u8,
+    lcds: u8,
+    interrupt_enable: u8,
+    interrupt_flag: u8,
+}
 pub struct Bus {
     memory: Memory,
+    registers: MMAPRegisters,
     mbc: Box<dyn MBC>,
-    pub(crate) ppu_lock: bool,
+    pub ppu_lock: bool,
     pub fifo: Vec<u8>,
     pub dma_address: u16,
 }
 
 impl Bus {
     pub fn new() -> Bus {
-        Bus { memory: Memory::new(), mbc: Box::new(MBC0::new()), ppu_lock: false, fifo: vec![], dma_address: 0 }
+        Bus {
+            memory: Memory::new(),
+            registers: MMAPRegisters {
+                ly: 91,
+                joypad: 0,
+                scy: 0,
+                scx: 0,
+                lcdc: 0,
+                lcds: 0,
+                interrupt_enable: 0,
+                interrupt_flag: 0,
+            },
+            mbc: Box::new(MBC0::new()),
+            ppu_lock: false,
+            fifo: vec![],
+            dma_address: 0
+        }
     }
     pub fn get(&self, address: u16) -> u8 {
         match address {
             ..=0x7FFF | 0xA000..=0xBFFF => { self.mbc.read(address, &self.memory) },
             0xe000..=0xfdff | 0xfea0..=0xfeff => 0xFF,
+            0xFF00 => self.registers.joypad,
+            0xFF40 => self.registers.lcdc,
+            0xFF41 => self.registers.lcds,
+            0xFF42 => self.registers.scy,
+            0xFF43 => self.registers.scx,
+            0xFF44 => self.registers.ly,
+            0xFF0F => self.registers.interrupt_flag,
+            0xFFFF => self.registers.interrupt_enable,
             0xFF00 => {
                 if self.get_joypad_dpad_buttons() && self.get_joypad_select_buttons() {
                     0xFF
@@ -68,7 +103,17 @@ impl Bus {
         }
     }
     pub fn _get(&self, address: u16) -> u8 {
-        self.memory.get(address)
+        match address {
+            0xFF00 => self.registers.joypad,
+            0xFF40 => self.registers.lcdc,
+            0xFF41 => self.registers.lcds,
+            0xFF42 => self.registers.scy,
+            0xFF43 => self.registers.scx,
+            0xFF44 => self.registers.ly,
+            0xFF0F => self.registers.interrupt_flag,
+            0xFFFF => self.registers.interrupt_enable,
+            _ => self.memory.get(address)
+        }
     }
 
     pub fn inc(&mut self, address: u16) {
@@ -95,6 +140,13 @@ impl Bus {
                 let value = (value & 0b11111000) | (self.memory.get(address) & 0b111);
                 self.memory.set(address, value)
             },
+            0xFF00 => self.registers.joypad = value,
+            0xFF40 => self.registers.lcdc = value,
+            0xFF41 => self.registers.lcds = value,
+            0xFF42 => self.registers.scy = value,
+            0xFF43 => self.registers.scx = value,
+            0xFF0F => self.registers.interrupt_flag = value,
+            0xFFFF => self.registers.interrupt_enable = value,
             0xFF44 => { },
             0xFF04 => self.memory.set(address, 0),
             0xFF46 => {
@@ -104,7 +156,17 @@ impl Bus {
         }
     }
     pub fn _set(&mut self, address: u16, value: u8) {
-        self.memory.set(address, value)
+        match address {
+            0xFF00 => self.registers.joypad = value,
+            0xFF40 => self.registers.lcdc = value,
+            0xFF41 => self.registers.lcds = value,
+            0xFF42 => self.registers.scy = value,
+            0xFF43 => self.registers.scx = value,
+            0xFF44 => self.registers.ly = value,
+            0xFF0F => self.registers.interrupt_flag = value,
+            0xFFFF => self.registers.interrupt_enable = value,
+            _ => self.memory.set(address, value)
+        }
     }
     pub fn set16(&mut self, address: u16, value: u16) {
         self.set(address, value as u8);

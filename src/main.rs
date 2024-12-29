@@ -17,9 +17,8 @@ mod window_fetcher;
 mod input;
 mod mbc;
 
-#[macroquad::main("BasicShapes")]
-async fn main() {
-    let output = LCDD::new(6f64);
+fn main() {
+    let output = Dummy::new();
     let input = input::Controller::new();
     let mut emu = Emulator::new(
         Path::new("test-roms").join("Tetris.gb").to_str().unwrap(),
@@ -27,7 +26,7 @@ async fn main() {
         output,
     );
 
-    emu.run(2000, &mut io::stdout()).await;
+    emu.run(2000, &mut io::stdout());
 }
 
 #[cfg(test)]

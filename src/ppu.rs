@@ -119,7 +119,7 @@ impl Ppu {
         bus.set(0xFF41, val);
         self.target_ticks = match state {
             PpuState::OAMFetch => PPU_LINE_LENGTH - 80,
-            PpuState::PixelTransfer => PPU_LINE_LENGTH - 80 - 172,
+            PpuState::PixelTransfer => self.target_ticks - 172,
             PpuState::HBlank => 0,
             PpuState::VBlank => 0
         };
@@ -203,13 +203,19 @@ impl Ppu {
         }
     }
     fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, output: &mut dyn Output) {
+        if !bus.get_ldlc_obj_enable() {
+            return;
+        }
         let mut final_pixel = (0, false, 255);
+        let obj_size = bus.get_ldlc_obj_size();
         for i in 0..40 {
+            if !self.oam_selection[i] {
+                continue
+            }
             let oam = self.oambuffer[i];
-            let x_ok = self.x - (oam.x as i16) < 8 && self.x - (oam.x as i16) >= 0;
-            if x_ok && bus.get_ldlc_obj_enable() && self.oam_selection[i] {
+            if self.x - (oam.x as i16) < 8 && self.x - (oam.x as i16) >= 0 {
                 let mut offset = 0x8000;
-                if bus.get_ldlc_obj_size() {
+                if obj_size {
                     if oam.flip_y {
                         offset += ((oam.tile_index | 0x01) as u16) * 0x10;
                     } else {

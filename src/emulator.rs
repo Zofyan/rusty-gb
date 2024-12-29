@@ -18,6 +18,7 @@ pub struct Emulator<O: Output, I: Input> {
     ppu: Ppu,
     output: O,
     input: I,
+    fps: Vec<f64>,
 }
 
 impl<O: Output, I: Input> Emulator<O, I> {
@@ -57,10 +58,11 @@ impl<O: Output, I: Input> Emulator<O, I> {
             ppu,
             output,
             input,
+            fps: vec![],
         }
     }
 
-    pub async fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
+    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
         let ten_millis = time::Duration::from_millis(1);
         let mut count: usize = 0;
         let mut timer: u64 = 0;
@@ -131,10 +133,12 @@ impl<O: Output, I: Input> Emulator<O, I> {
             }
             count += 1;
             if count > max_cycles && max_cycles != 0 {
+                println!("Avg FPS: {:}", self.fps.iter().sum::<f64>() / self.fps.len() as f64);
                 break;
             }
-            next_frame().await;
+            // next_frame().await;
             let diff = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() - millis;
+            self.fps.push(1000.0 / diff as f64);
             println!("FPS: {}", 1000.0 / diff as f64);
         }
     }

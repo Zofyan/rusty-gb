@@ -47,13 +47,16 @@ pub struct MMAPRegisters {
     scy: u8,
     scx: u8,
     lcdc: u8,
-    lcds: u8,
+    pub(crate) lcds: u8,
+    bg_palette_data: u8,
+    obj_palette_0: u8,
+    obj_palette_1: u8,
     interrupt_enable: u8,
     interrupt_flag: u8,
 }
 pub struct Bus {
     memory: Memory,
-    registers: MMAPRegisters,
+    pub(crate) registers: MMAPRegisters,
     mbc: Box<dyn MBC>,
     pub ppu_lock: bool,
     pub fifo: Vec<u8>,
@@ -71,6 +74,9 @@ impl Bus {
                 scx: 0,
                 lcdc: 0,
                 lcds: 0,
+                bg_palette_data: 0,
+                obj_palette_0: 0,
+                obj_palette_1: 0,
                 interrupt_enable: 0,
                 interrupt_flag: 0,
             },
@@ -90,6 +96,9 @@ impl Bus {
             0xFF42 => self.registers.scy,
             0xFF43 => self.registers.scx,
             0xFF44 => self.registers.ly,
+            0xFF47 => self.registers.bg_palette_data,
+            0xFF48 => self.registers.obj_palette_0,
+            0xFF49 => self.registers.obj_palette_1,
             0xFF0F => self.registers.interrupt_flag,
             0xFFFF => self.registers.interrupt_enable,
             0xFF00 => {
@@ -104,14 +113,10 @@ impl Bus {
     }
     pub fn _get(&self, address: u16) -> u8 {
         match address {
-            0xFF00 => self.registers.joypad,
-            0xFF40 => self.registers.lcdc,
-            0xFF41 => self.registers.lcds,
-            0xFF42 => self.registers.scy,
-            0xFF43 => self.registers.scx,
-            0xFF44 => self.registers.ly,
-            0xFF0F => self.registers.interrupt_flag,
-            0xFFFF => self.registers.interrupt_enable,
+            0xFF00 | 0xFF40 => panic!("no"),
+            0xFF41 => panic!("no"),
+            0xFF42 | 0xFF43  => panic!("no"),
+            0xFF44 | 0xFF47 | 0xFF48 | 0xFF49 | 0xFF0F | 0xFFFF => panic!("no"),
             _ => self.memory.get(address)
         }
     }
@@ -137,15 +142,17 @@ impl Bus {
                 }
             },
             0xFF41 => {
-                let value = (value & 0b11111000) | (self.memory.get(address) & 0b111);
-                self.memory.set(address, value)
+                self.registers.lcds = (value & 0b11111000) | (self.memory.get(address) & 0b111);
             },
             0xFF00 => self.registers.joypad = value,
             0xFF40 => self.registers.lcdc = value,
-            0xFF41 => self.registers.lcds = value,
             0xFF42 => self.registers.scy = value,
             0xFF43 => self.registers.scx = value,
+            0xFF47 => self.registers.bg_palette_data = value,
+            0xFF48 => self.registers.obj_palette_0 = value,
+            0xFF49 => self.registers.obj_palette_1 = value,
             0xFF0F => self.registers.interrupt_flag = value,
+            0xFFFF => self.registers.interrupt_enable = value,
             0xFFFF => self.registers.interrupt_enable = value,
             0xFF44 => { },
             0xFF04 => self.memory.set(address, 0),
@@ -157,14 +164,7 @@ impl Bus {
     }
     pub fn _set(&mut self, address: u16, value: u8) {
         match address {
-            0xFF00 => self.registers.joypad = value,
-            0xFF40 => self.registers.lcdc = value,
-            0xFF41 => self.registers.lcds = value,
-            0xFF42 => self.registers.scy = value,
-            0xFF43 => self.registers.scx = value,
-            0xFF44 => self.registers.ly = value,
-            0xFF0F => self.registers.interrupt_flag = value,
-            0xFFFF => self.registers.interrupt_enable = value,
+            0xFF00 | 0xFF40 | 0xFF41 | 0xFF42 | 0xFF43 | 0xFF44 | 0xFF47 | 0xFF48 | 0xFF49 | 0xFF0F | 0xFFFF => panic!("no"),
             _ => self.memory.set(address, value)
         }
     }
@@ -250,90 +250,65 @@ impl Bus {
         self.set(address, value);
         (false, false, false, false)
     }
-    pub fn set_bit(&mut self, address: u16, bit: usize, value: bool) {
-        let mut val = self._get(address);
-        val.set_bit(bit, value);
-        self.set(address, val);
-    }
     pub fn set_int_enable_joypad(&mut self, value: bool){
-        let mut val =  self._get(INT_ENABLE);
-        val.set_bit(4, value);
-        self.set(INT_ENABLE, val);
+        self.registers.interrupt_enable.set_bit(4, value)
     }
     pub fn set_int_enable_serial(&mut self, value: bool){
-        let mut val =  self._get(INT_ENABLE);
-        val.set_bit(3, value);
-        self.set(INT_ENABLE, val);
+        self.registers.interrupt_enable.set_bit(3, value)
     }
     pub fn set_int_enable_timer(&mut self, value: bool){
-        let mut val =  self._get(INT_ENABLE);
-        val.set_bit(2, value);
-        self.set(INT_ENABLE, val);
+        self.registers.interrupt_enable.set_bit(2, value)
     }
     pub fn set_int_enable_lcd(&mut self, value: bool){
-        let mut val =  self._get(INT_ENABLE);
-        val.set_bit(1, value);
-        self.set(INT_ENABLE, val);
+        self.registers.interrupt_enable.set_bit(1, value)
     }
     pub fn set_int_enable_vblank(&mut self, value: bool){
-        let mut val =  self._get(INT_ENABLE);
-        val.set_bit(0, value);
-        self.set(INT_ENABLE, val);
+        self.registers.interrupt_enable.set_bit(0, value)
     }
     pub fn get_int_enable_joypad(&self) -> bool{
-        self._get(0xFFFF).bit(4)
+        self.registers.interrupt_enable.bit(4)
     }
     pub fn get_int_enable_serial(&self) -> bool{
-        self._get(0xFFFF).bit(3)
+        self.registers.interrupt_enable.bit(3)
     }
     pub fn get_int_enable_timer(&self) -> bool{
-        self._get(0xFFFF).bit(2)
+        self.registers.interrupt_enable.bit(2)
     }
     pub fn get_int_enable_lcd(&self) -> bool{
-        self._get(0xFFFF).bit(1)
+        self.registers.interrupt_enable.bit(1)
     }
     pub fn get_int_enable_vblank(&self) -> bool{
-        self._get(0xFFFF).bit(0)
+        self.registers.interrupt_enable.bit(0)
     }
     pub fn set_int_request_joypad(&mut self, value: bool){
-        let mut val =  self._get(INT_REQUEST);
-        val.set_bit(4, value);
-        self._set(INT_REQUEST, val);
+        self.registers.interrupt_flag.set_bit(4, value)
     }
     pub fn set_int_request_serial(&mut self, value: bool){
-        let mut val =  self._get(INT_REQUEST);
-        val.set_bit(3, value);
-        self._set(INT_REQUEST, val);
+        self.registers.interrupt_flag.set_bit(3, value)
     }
     pub fn set_int_request_timer(&mut self, value: bool){
-        let mut val =  self._get(INT_REQUEST);
-        val.set_bit(2, value);
-        self._set(INT_REQUEST, val);
+        self.registers.interrupt_flag.set_bit(2, value)
     }
     pub fn set_int_request_lcd(&mut self, value: bool){
-        let mut val =  self._get(INT_REQUEST);
-        val.set_bit(1, value);
-        self._set(INT_REQUEST, val);
+        self.registers.interrupt_flag.set_bit(1, value)
     }
     pub fn set_int_request_vblank(&mut self, value: bool){
-        let mut val =  self._get(INT_REQUEST);
-        val.set_bit(0, value);
-        self._set(INT_REQUEST, val);
+        self.registers.interrupt_flag.set_bit(0, value)
     }
     pub fn get_int_request_joypad(&self) -> bool{
-        self._get(INT_REQUEST).bit(4)
+        self.registers.interrupt_flag.bit(4)
     }
     pub fn get_int_request_serial(&self) -> bool{
-        self._get(INT_REQUEST).bit(3)
+        self.registers.interrupt_flag.bit(3)
     }
     pub fn get_int_request_timer(&self) -> bool{
-        self._get(INT_REQUEST).bit(2)
+        self.registers.interrupt_flag.bit(2)
     }
     pub fn get_int_request_lcd(&self) -> bool{
-        self._get(INT_REQUEST).bit(1)
+        self.registers.interrupt_flag.bit(1)
     }
     pub fn get_int_request_vblank(&self) -> bool{
-        self._get(INT_REQUEST).bit(0)
+        self.registers.interrupt_flag.bit(0)
     }
     pub fn set_joypad_input(&mut self, bit: usize, value: bool){
         let mut val= self._get(0xFF00);
@@ -341,95 +316,68 @@ impl Bus {
         self._set(0xFF00, val)
     }
     pub fn get_ldlc_bd_window_enable(&self) -> bool {
-        self._get(0xFF40).bit(0)
+        self.registers.lcdc.bit(0)
     }
     pub fn get_ldlc_obj_enable(&self) -> bool {
-        self._get(0xFF40).bit(1)
+        self.registers.lcdc.bit(1)
     }
     pub fn get_ldlc_obj_size(&self) -> bool {
-        self._get(0xFF40).bit(2)
+        self.registers.lcdc.bit(2)
     }
     pub fn get_ldlc_bg_tilemap(&self) -> bool {
-        self._get(0xFF40).bit(3)
+        self.registers.lcdc.bit(3)
     }
     pub fn get_ldlc_bg_window_tiles(&self) -> bool {
-        self._get(0xFF40).bit(4)
+        self.registers.lcdc.bit(4)
     }
     pub fn get_ldlc_window_enable(&self) -> bool {
-        self._get(0xFF40).bit(5)
+        self.registers.lcdc.bit(5)
     }
     pub fn get_ldlc_window_tilemap(&self) -> bool {
-        self._get(0xFF40).bit(6)
+        self.registers.lcdc.bit(6)
     }
     pub fn get_ldlc_lcd_ppu_enable(&self) -> bool {
-        self._get(0xFF40).bit(7)
+        self.registers.lcdc.bit(7)
     }
     pub fn get_ldlc_stat_mode(&self) -> u8 {
-        self._get(0xFF41) & 0b11
+        self.registers.lcds & 0b11
     }
     pub fn get_ldlc_stat_lyc_ly_flag(&self) -> bool {
-        self._get(0xFF41).bit(2)
+        self.registers.lcds.bit(2)
     }
     pub fn get_ldlc_stat_hblank_stat_int(&self) -> bool {
-        self._get(0xFF41).bit(3)
+        self.registers.lcds.bit(3)
     }
     pub fn get_ldlc_stat_vblank_stat_int(&self) -> bool {
-        self._get(0xFF41).bit(4)
+        self.registers.lcds.bit(4)
     }
     pub fn get_ldlc_stat_oam_stat_int(&self) -> bool {
-        self._get(0xFF41).bit(5)
+        self.registers.lcds.bit(5)
     }
     pub fn get_ldlc_stat_lyc_ly_stat_int(&self) -> bool {
-        self._get(0xFF41).bit(6)
-    }
-    pub fn get_ldlc_x(&self) -> bool {
-        self._get(0xFF41).bit(7)
+        self.registers.lcds.bit(6)
     }
 
-    pub fn set_ldlc_bd_window_enable(&mut self, value: bool) {
-        self.set_bit(0xFF40, 0, value);
-    }
-    pub fn set_ldlc_obj_enable(&mut self, value: bool) {
-        self.set_bit(0xFF40, 1, value);
-    }
-    pub fn set_ldlc_obj_size(&mut self, value: bool) {
-        self.set_bit(0xFF40, 2, value);
-    }
-    pub fn set_ldlc_bg_tilemap(&mut self, value: bool) {
-        self.set_bit(0xFF40, 3, value);
-    }
-    pub fn set_ldlc_bg_window_tiles(&mut self, value: bool) {
-        self.set_bit(0xFF40, 4, value);
-    }
-    pub fn set_ldlc_window_enable(&mut self, value: bool) {
-        self.set_bit(0xFF40, 5, value);
-    }
-    pub fn set_ldlc_window_tilemap(&mut self, value: bool) {
-        self.set_bit(0xFF40, 6, value);
-    }
-    pub fn set_ldlc_lcd_ppu_enable(&mut self, value: bool) {
-        self.set_bit(0xFF40, 7, value);
-    }
     pub fn get_scy(&self) -> u8 {
-        self._get(0xFF42)
+        self.registers.scy
     }
     pub fn get_scx(&self) -> u8 {
-        self._get(0xFF43)
+        self.registers.scx
     }
     pub fn get_ly(&self) -> u8 {
-        self._get(0xFF44)
+        self.registers.ly
     }
     pub fn get_lyc(&self) -> u8 {
         self._get(0xFF45)
     }
     pub fn set_scy(&mut self, value: u8) {
-        self._set(0xFF42, value)
+        self.registers.scy = value
     }
     pub fn set_scx(&mut self, value: u8) {
-        self._set(0xFF43, value)
+        self.registers.scx = value
     }
     pub fn set_ly(&mut self, value: u8) {
-        self._set(0xFF44, value)
+        self.registers.ly = value
     }
     pub fn set_lyc(&mut self, value: u8) {
         self._set(0xFF45, value)
@@ -447,28 +395,25 @@ impl Bus {
         self._set(0xFF4B, value + 7)
     }
     pub fn get_joypad_select_buttons(&self) -> bool {
-        self.memory.get(0xFF00).bit(5)
+        self.registers.joypad.bit(5)
     }
     pub fn get_joypad_dpad_buttons(&self) -> bool {
-        self.memory.get(0xFF00).bit(4)
+        self.registers.joypad.bit(4)
     }
     pub fn set_joypad_set_start_down(&mut self) {
-        self.set_bit(0xFF00, 3, false)
+        self.registers.joypad.set_bit(3, false)
     }
     pub fn set_joypad_set_select_up(&mut self) {
-        self.set_bit(0xFF00, 2, false)
+        self.registers.joypad.set_bit(2, false)
     }
     pub fn set_joypad_set_b_left(&mut self) {
-        self.set_bit(0xFF00, 1, false)
+        self.registers.joypad.set_bit(1, false)
     }
     pub fn set_joypad_set_a_right(&mut self) {
-        self.set_bit(0xFF00, 0, false)
+        self.registers.joypad.set_bit(0, false)
     }
     pub fn reset_joypad_buttons(&mut self) {
-        self.set_bit(0xFF00, 0, true);
-        self.set_bit(0xFF00, 1, true);
-        self.set_bit(0xFF00, 2, true);
-        self.set_bit(0xFF00, 3, true);
+        self.registers.joypad = self.registers.joypad | 0x0F;
     }
     pub fn load_rom(&mut self, buffer: Vec<u8>) {
         self.memory.load_rom(buffer);

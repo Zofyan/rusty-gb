@@ -95,10 +95,7 @@ impl Bus {
                 let value = (value & 0b11111000) | (self.memory.get(address) & 0b111);
                 self.memory.set(address, value)
             },
-            0xFF00 => {
-                let value = value & 0x0F;
-                self.memory.set(address, value)
-            },
+            0xFF44 => { },
             0xFF04 => self.memory.set(address, 0),
             0xFF46 => {
                 self.dma_address = value as u16 * 0x100;
@@ -364,28 +361,28 @@ impl Bus {
         self._get(0xFF45)
     }
     pub fn set_scy(&mut self, value: u8) {
-        self.set(0xFF42, value)
+        self._set(0xFF42, value)
     }
     pub fn set_scx(&mut self, value: u8) {
-        self.set(0xFF43, value)
+        self._set(0xFF43, value)
     }
     pub fn set_ly(&mut self, value: u8) {
-        self.set(0xFF44, value)
+        self._set(0xFF44, value)
     }
     pub fn set_lyc(&mut self, value: u8) {
-        self.set(0xFF45, value)
+        self._set(0xFF45, value)
     }
     pub fn get_wy(&self) -> u8 {
         self._get(0xFF4A)
     }
     pub fn set_wy(&mut self, value: u8) {
-        self.set(0xFF4A, value)
+        self._set(0xFF4A, value)
     }
     pub fn get_wx(&self) -> u8 {
         self._get(0xFF4B).overflowing_sub(7).0
     }
     pub fn set_wx(&mut self, value: u8) {
-        self.set(0xFF4B, value + 7)
+        self._set(0xFF4B, value + 7)
     }
     pub fn get_joypad_select_buttons(&self) -> bool {
         self.memory.get(0xFF00).bit(5)

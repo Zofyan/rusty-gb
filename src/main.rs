@@ -22,12 +22,12 @@ async fn main() {
     let output = LCDD::new(6f64);
     let input = input::Controller::new();
     let mut emu = Emulator::new(
-        Path::new("test-roms").join("Donkey Kong Land.gb").to_str().unwrap(),
+        Path::new("test-roms").join("Tetris.gb").to_str().unwrap(),
         input,
         output,
     );
 
-    emu.run(0, &mut io::stdout()).await;
+    emu.run(2000, &mut io::stdout()).await;
 }
 
 #[cfg(test)]

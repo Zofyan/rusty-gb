@@ -47,15 +47,6 @@ impl OAM {
             priority: true,
         }
     }
-    pub fn save(&self, bus: &mut Bus) {
-        bus.set(self.address, self.y);
-        bus.set(self.address + 1, self.x);
-        bus.set(self.address + 2, self.tile_index);
-        bus.set_bit(self.address + 3, 4, self.palette);
-        bus.set_bit(self.address + 3, 5, self.flip_x);
-        bus.set_bit(self.address + 3, 6, self.flip_y);
-        bus.set_bit(self.address + 3, 7, self.priority);
-    }
 }
 
 impl Clone for OAM {
@@ -114,7 +105,7 @@ impl Ppu {
         }
     }
     fn set_ppu_state(&mut self, bus: &mut Bus, state: PpuState) {
-        let val = (bus._get(0xFF41) & 0b11111100) | state.clone() as u8;
+        let val = (bus.registers.lcds & 0b11111100) | state.clone() as u8;
         self.state = state.clone();
         bus.set(0xFF41, val);
         self.target_ticks = match state {
@@ -150,7 +141,98 @@ impl Ppu {
                 self.oam_fetch(bus);
             }
             PpuState::PixelTransfer => {
-                self.pixel_tranfer(bus, output);
+
+
+                self.fetcher.tick(bus);
+                let mut pixel = 0;
+                let mut window_pixel = 0;
+
+                if !self.fetcher.fifo_bg.is_empty() {
+                    pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
+                    output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, 0);
+
+                    let wy = bus._get(0xFF4A);
+                    let wx = bus._get(0xFF4B);
+                    if bus.get_ldlc_window_enable() {
+                        self.window_fetcher.tick(bus);
+                        if wy <= bus.get_ly() && self.x + 7 >= wx as i16 {
+                            if !self.window_fetcher.fifo_bg.is_empty() {
+                                window_pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
+                                if bus.get_ldlc_bd_window_enable() && bus.get_ldlc_window_enable() {
+                                    output.write_pixel(self.x as u16, bus.get_ly() as u16, window_pixel, false, 1);
+                                }
+                            }
+                        }
+                    }
+                    let transparent_bg = pixel == 0 || window_pixel == 0 || bus.get_ldlc_bd_window_enable();
+                    if !bus.get_ldlc_obj_enable() {
+                        return;
+                    }
+                    let mut final_pixel = (0, false, 255);
+                    let obj_size = bus.get_ldlc_obj_size();
+                    for i in 0..40 {
+                        if !self.oam_selection[i] {
+                            continue
+                        }
+                        let oam = self.oambuffer[i];
+                        if self.x - (oam.x as i16) < 8 && self.x - (oam.x as i16) >= 0 {
+                            let mut offset = 0x8000;
+                            if obj_size {
+                                if oam.flip_y {
+                                    offset += ((oam.tile_index | 0x01) as u16) * 0x10;
+                                } else {
+                                    offset += ((oam.tile_index & 0xFE) as u16) * 0x10;
+                                }
+                            } else {
+                                offset += (oam.tile_index as u16) * 0x10;
+                            }
+
+                            let mut addr = offset;
+                            if oam.flip_y {
+                                addr += ((8 - (bus.get_ly() + 16 - oam.y)) * 2) as u16;
+                            } else {
+                                addr += ((bus.get_ly() + 16 - oam.y) * 2) as u16;
+                            }
+
+                            let mut bit_shift = 7 - self.x.checked_sub_unsigned(oam.x as u16).unwrap();
+                            if oam.flip_x {
+                                bit_shift = self.x.checked_sub_unsigned(oam.x as u16).unwrap();
+                            }
+
+                            let mut data = bus._get(addr);
+                            let mut sprite_pixel = data.overflowing_shr(bit_shift as u32).0 & 0x1;
+                            data = bus._get(addr + 1);
+                            sprite_pixel |= (data.overflowing_shr(bit_shift as u32).0 & 0x1) << 1;
+                            if !oam.priority || transparent_bg {
+                                if sprite_pixel != 0 && oam.x < final_pixel.2 {
+                                    final_pixel.0 = sprite_pixel;
+                                    final_pixel.1 = oam.palette;
+                                    final_pixel.2 = oam.x;
+                                }
+                            }
+                        }
+                        if final_pixel.2 < 255  {
+                            output.write_pixel(
+                                self.x as u16,
+                                bus.get_ly() as u16,
+                                final_pixel.0,
+                                final_pixel.1,
+                                2
+                            );
+                        }
+                    }
+                    self.x += 1;
+                } else {
+                    self.target_ticks -= 1;
+                }
+
+
+                if self.ticks == self.target_ticks + 1 {
+                    if bus.get_ldlc_stat_hblank_stat_int() {
+                        bus.set_int_request_lcd(true);
+                    }
+                    self.set_ppu_state(bus, PpuState::HBlank);
+                }
             }
             PpuState::HBlank => {
                 self.hblank(bus);
@@ -203,99 +285,9 @@ impl Ppu {
         }
     }
     fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, output: &mut dyn Output) {
-        if !bus.get_ldlc_obj_enable() {
-            return;
-        }
-        let mut final_pixel = (0, false, 255);
-        let obj_size = bus.get_ldlc_obj_size();
-        for i in 0..40 {
-            if !self.oam_selection[i] {
-                continue
-            }
-            let oam = self.oambuffer[i];
-            if self.x - (oam.x as i16) < 8 && self.x - (oam.x as i16) >= 0 {
-                let mut offset = 0x8000;
-                if obj_size {
-                    if oam.flip_y {
-                        offset += ((oam.tile_index | 0x01) as u16) * 0x10;
-                    } else {
-                        offset += ((oam.tile_index & 0xFE) as u16) * 0x10;
-                    }
-                } else {
-                    offset += (oam.tile_index as u16) * 0x10;
-                }
 
-                let mut addr = offset;
-                if oam.flip_y {
-                    addr += ((8 - (bus.get_ly() + 16 - oam.y)) * 2) as u16;
-                } else {
-                    addr += ((bus.get_ly() + 16 - oam.y) * 2) as u16;
-                }
-
-                let mut bit_shift = 7 - self.x.checked_sub_unsigned(oam.x as u16).unwrap();
-                if oam.flip_x {
-                    bit_shift = self.x.checked_sub_unsigned(oam.x as u16).unwrap();
-                }
-
-                let mut data = bus._get(addr);
-                let mut sprite_pixel = data.overflowing_shr(bit_shift as u32).0 & 0x1;
-                data = bus._get(addr + 1);
-                sprite_pixel |= (data.overflowing_shr(bit_shift as u32).0 & 0x1) << 1;
-                if !oam.priority || transparent_bg {
-                    if sprite_pixel != 0 && oam.x < final_pixel.2 {
-                        final_pixel.0 = sprite_pixel;
-                        final_pixel.1 = oam.palette;
-                        final_pixel.2 = oam.x;
-                    }
-                }
-            }
-            if final_pixel.2 < 255  {
-                output.write_pixel(
-                    self.x as u16,
-                    bus.get_ly() as u16,
-                    final_pixel.0,
-                    final_pixel.1,
-                    2
-                );
-            }
-        }
     }
     fn pixel_tranfer(&mut self, bus: &mut Bus, output: &mut dyn Output) {
-
-        self.fetcher.tick(bus);
-        let mut pixel = 0;
-        let mut window_pixel = 0;
-
-        if !self.fetcher.fifo_bg.is_empty() {
-            pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
-            output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, 0);
-
-            let wy = bus._get(0xFF4A);
-            let wx = bus._get(0xFF4B);
-            if bus.get_ldlc_window_enable() {
-                self.window_fetcher.tick(bus);
-                if wy <= bus.get_ly() && self.x + 7 >= wx as i16 {
-                    if !self.window_fetcher.fifo_bg.is_empty() {
-                        window_pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
-                        if bus.get_ldlc_bd_window_enable() && bus.get_ldlc_window_enable() {
-                            output.write_pixel(self.x as u16, bus.get_ly() as u16, window_pixel, false, 1);
-                        }
-                    }
-                }
-            }
-            self.oam_tranfer(bus, pixel == 0 || window_pixel == 0 || bus.get_ldlc_bd_window_enable(), output);
-            self.x += 1;
-        } else {
-            self.target_ticks -= 1;
-        }
-
-
-        if self.ticks == self.target_ticks + 1 {
-            if bus.get_ldlc_stat_hblank_stat_int() {
-                bus.set_int_request_lcd(true);
-            }
-            self.set_ppu_state(bus, PpuState::HBlank);
-        }
     }
     fn hblank(&mut self, bus: &mut Bus) {
         if self.ticks == self.target_ticks {

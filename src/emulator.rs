@@ -135,7 +135,7 @@ impl<O: Output, I: Input> Emulator<O, I> {
             }
             next_frame().await;
             let diff = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() - millis;
-            //println!("FPS: {}", 1000.0 / diff as f64);
+            println!("FPS: {}", 1000.0 / diff as f64);
         }
     }
 }

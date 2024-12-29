@@ -190,6 +190,8 @@ impl Ppu {
                     self.oambuffer[i].x = self.oambuffer[i].x.wrapping_sub(8);
                     self.oam_selection[i] = true;
 
+                    self.target_ticks -= (11 - min(5, (self.x.checked_add_unsigned(bus.get_scx() as u16).unwrap()) % 8)) as usize;
+
                     count += 1;
                     if count >= 10 {
                         break;
@@ -204,10 +206,7 @@ impl Ppu {
         let mut final_pixel = (0, false, 255);
         for i in 0..40 {
             let oam = self.oambuffer[i];
-            let x_ok = match (self.x as u16).checked_sub(oam.x as u16) {
-                None => { false }
-                Some(res) => { res < 8 }
-            };
+            let x_ok = self.x - (oam.x as i16) < 8 && self.x - (oam.x as i16) >= 0;
             if x_ok && bus.get_ldlc_obj_enable() && self.oam_selection[i] {
                 let mut offset = 0x8000;
                 if bus.get_ldlc_obj_size() {
@@ -245,7 +244,6 @@ impl Ppu {
                 }
             }
             if final_pixel.2 < 255  {
-                self.target_ticks -= (11 - min(5, (self.x.checked_add_unsigned(bus.get_scx() as u16).unwrap()) % 8)) as usize;
                 output.write_pixel(
                     self.x as u16,
                     bus.get_ly() as u16,
@@ -279,11 +277,10 @@ impl Ppu {
                     }
                 }
             }
-            bus.set_ly(bus.get_ly() - (bus.get_scy() % 8));
             self.oam_tranfer(bus, pixel == 0 || window_pixel == 0 || bus.get_ldlc_bd_window_enable(), output);
             self.x += 1;
         } else {
-            self.target_ticks -= 1
+            self.target_ticks -= 1;
         }
 
 

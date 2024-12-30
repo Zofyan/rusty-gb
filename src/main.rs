@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::io;
 use std::path::Path;
 use crate::emulator::Emulator;
@@ -17,16 +18,17 @@ mod window_fetcher;
 mod input;
 mod mbc;
 
-fn main() {
-    let output = Dummy::new();
+#[macroquad::main("Emulator")]
+async fn main() {
+    let output = LCDD::new(5f64);
     let input = input::Controller::new();
     let mut emu = Emulator::new(
-        Path::new("test-roms").join("Tetris.gb").to_str().unwrap(),
+        Path::new("test-roms").join("Pokemon Red.gb").to_str().unwrap(),
         input,
         output,
     );
 
-    emu.run(2000, &mut io::stdout());
+    emu.run(2000, &mut io::stdout()).await;
 }
 
 #[cfg(test)]

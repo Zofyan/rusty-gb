@@ -1,12 +1,14 @@
 #![allow(dead_code)]
 
+use std::cmp::PartialEq;
 use bitfield::{Bit, BitMut};
 use rand::{random, Rng};
 use crate::input::Input;
 use crate::mbc::{MBC, MBC0, MBC1, MBC2, MBC3};
 use crate::memory::Memory;
 use crate::output::Output;
-use crate::ppu::OAM;
+use crate::ppu::PpuState;
+use crate::ppu::PpuState::{OAMFetch, PixelTransfer};
 
 pub const ROM_0: u16 = 0x0000;
 pub const ROM_0_END: u16 = 0x3FFF;
@@ -58,7 +60,7 @@ pub struct Bus {
     memory: Memory,
     pub(crate) registers: MMAPRegisters,
     mbc: Box<dyn MBC>,
-    pub ppu_lock: bool,
+    pub ppu_state: PpuState,
     pub fifo: Vec<u8>,
     pub dma_address: u16,
 }
@@ -81,7 +83,7 @@ impl Bus {
                 interrupt_flag: 0,
             },
             mbc: Box::new(MBC0::new()),
-            ppu_lock: false,
+            ppu_state: OAMFetch,
             fifo: vec![],
             dma_address: 0
         }
@@ -137,8 +139,15 @@ impl Bus {
             ..=0x7FFF | 0xA000..=0xBFFF => { self.mbc.write(address, value, &mut self.memory); },
             0xe000..=0xfdff | 0xfea0..=0xfeff => {},
             0x8000..=0x9fff => {
-                if self.ppu_lock == false {
-                    self.memory.set(address, value)
+                match self.ppu_state {
+                    PixelTransfer => {},
+                    _ => self.memory.set(address, value)
+                }
+            },
+            0xFE00..=0xFE9F => {
+                match self.ppu_state {
+                    PixelTransfer | OAMFetch => {},
+                    _ => self.memory.set(address, value)
                 }
             },
             0xFF41 => {

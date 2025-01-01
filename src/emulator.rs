@@ -10,7 +10,8 @@ use macroquad::prelude::next_frame;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::{io, thread, time};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread::sleep;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct Emulator<O: Output, I: Input> {
     cpu: Cpu,
@@ -137,8 +138,12 @@ impl<O: Output, I: Input> Emulator<O, I> {
             }
             next_frame().await;
             let diff = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() - millis;
-            self.fps.push(1_000_000.0 / diff as f64);
-            println!("FPS: {}", 1_000_000.0 / diff as f64);
+            let time = 1_000_000.0 / diff as f64;
+            self.fps.push(time);
+            if time < 1_000_000.0 / 60.0 {
+                //sleep(Duration::from_micros((1_000_000.0 / 60.0 - time) as u64))
+            }
+            println!("FPS: {}", time);
         }
     }
 }

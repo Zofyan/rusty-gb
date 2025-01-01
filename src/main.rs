@@ -28,7 +28,7 @@ async fn main() {
         output,
     );
 
-    emu.run(2000, &mut io::stdout()).await;
+    emu.run(3000, &mut io::stdout()).await;
 }
 
 #[cfg(test)]

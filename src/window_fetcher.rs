@@ -44,7 +44,7 @@ impl WindowFetcher {
     pub fn tick(&mut self, bus: &mut Bus) {
         self.ticks += 1;
         if self.ticks < 2 {
-            //return;
+            return;
         }
         self.ticks = 0;
 

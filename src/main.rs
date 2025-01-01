@@ -18,17 +18,16 @@ mod window_fetcher;
 mod input;
 mod mbc;
 
-#[macroquad::main("Emulator")]
-async fn main() {
-    let output = LCDD::new(5f64);
+ fn main() {
+    let output = Dummy::new();
     let input = input::Controller::new();
     let mut emu = Emulator::new(
-        Path::new("test-roms").join("Pokemon Red.gb").to_str().unwrap(),
+        Path::new("test-roms").join("Kirby's Dream Land.gb").to_str().unwrap(),
         input,
         output,
     );
 
-    emu.run(3000, &mut io::stdout()).await;
+    emu.run(3000, &mut io::stdout());
 }
 
 #[cfg(test)]

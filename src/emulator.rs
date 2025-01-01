@@ -63,7 +63,7 @@ impl<O: Output, I: Input> Emulator<O, I> {
         }
     }
 
-    pub async fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
+    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
         let mut count: usize = 0;
         let mut timer: u64 = 0;
         loop {
@@ -136,7 +136,7 @@ impl<O: Output, I: Input> Emulator<O, I> {
                 println!("Avg FPS: {:}", self.fps.iter().sum::<f64>() / self.fps.len() as f64);
                 break;
             }
-            next_frame().await;
+            //next_frame().await;
             let diff = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() - millis;
             let time = 1_000_000.0 / diff as f64;
             self.fps.push(time);

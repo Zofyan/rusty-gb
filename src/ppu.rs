@@ -269,32 +269,28 @@ impl Ppu {
         }
     }
     fn pixel_tranfer(&mut self, bus: &mut Bus, output: &mut dyn Output) {
-        let mut pixel = 0;
-        let wx = bus._get(0xFF4B);
-        if self.window_y_hit && bus.get_ldlc_window_enable() &&  self.x + 7 >= wx as i16{
+        let mut pixel = 255;
+        let mut debug = 0;
+        if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus._get(0xFF4B) as i16{
             self.window_fetcher.tick(bus);
+            debug = 1;
 
             if !self.window_fetcher.fifo_bg.is_empty() {
                 pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
-                output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, 1);
-
-                let transparent_bg = pixel == 0;
-                self.oam_tranfer(bus, transparent_bg, output);
-                self.x += 1;
             }
         } else {
             self.fetcher.tick(bus);
-
             if !self.fetcher.fifo_bg.is_empty() {
                 pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
-                output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, 0);
-
-                let transparent_bg = pixel == 0;
-                self.oam_tranfer(bus, transparent_bg, output);
-                self.x += 1;
-            } else {
-                self.target_ticks -= 1;
             }
+        }
+        if pixel != 255 {
+            output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
+            let transparent_bg = pixel == 0;
+            self.oam_tranfer(bus, transparent_bg, output);
+            self.x += 1;
+        } else {
+            self.target_ticks -= 1;
         }
 
 

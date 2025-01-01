@@ -44,10 +44,18 @@ pub const HRAM_SIZE: u16 = HRAM_END - HRAM + 1;
 pub const INT_ENABLE_SIZE: u16 = INT_ENABLE_END - INT_ENABLE + 1;
 
 pub struct MMAPRegisters {
+    pub sb: u8,
+    pub sc: u8,
+    pub div: u8,
+    pub tima: u8,
+    pub tma: u8,
+    pub tca: u8,
     ly: u8,
     joypad: u8,
     scy: u8,
     scx: u8,
+    wx: u8,
+    wy: u8,
     lcdc: u8,
     pub(crate) lcds: u8,
     bg_palette_data: u8,
@@ -70,10 +78,18 @@ impl Bus {
         Bus {
             memory: Memory::new(),
             registers: MMAPRegisters {
+                sb: 0,
+                sc: 0,
+                div: 0,
+                tima: 0,
+                tma: 0,
+                tca: 0,
                 ly: 91,
                 joypad: 0,
                 scy: 0,
                 scx: 0,
+                wx: 0,
+                wy: 0,
                 lcdc: 0,
                 lcds: 0,
                 bg_palette_data: 0,
@@ -93,6 +109,12 @@ impl Bus {
             ..=0x7FFF | 0xA000..=0xBFFF => { self.mbc.read(address, &self.memory) },
             0xe000..=0xfdff | 0xfea0..=0xfeff => 0xFF,
             0xFF00 => self.registers.joypad,
+            0xFF01 => self.registers.sb,
+            0xFF02 => self.registers.sc,
+            0xFF04 => self.registers.div,
+            0xFF05 => self.registers.tima,
+            0xFF06 => self.registers.tma,
+            0xFF07 => self.registers.tca,
             0xFF40 => self.registers.lcdc,
             0xFF41 => self.registers.lcds,
             0xFF42 => self.registers.scy,
@@ -101,6 +123,8 @@ impl Bus {
             0xFF47 => self.registers.bg_palette_data,
             0xFF48 => self.registers.obj_palette_0,
             0xFF49 => self.registers.obj_palette_1,
+            0xFF4A => self.registers.wy,
+            0xFF4B => self.registers.wx,
             0xFF0F => self.registers.interrupt_flag,
             0xFFFF => self.registers.interrupt_enable,
             0xFF00 => {
@@ -154,12 +178,20 @@ impl Bus {
                 self.registers.lcds = (value & 0b11111000) | (self.memory.get(address) & 0b111);
             },
             0xFF00 => self.registers.joypad = value,
+            0xFF01 => self.registers.sb = value,
+            0xFF02 => self.registers.sc = value,
+            0xFF04 => self.registers.div = value,
+            0xFF05 => self.registers.tima = value,
+            0xFF06 => self.registers.tma = value,
+            0xFF07 => self.registers.tca = value,
             0xFF40 => self.registers.lcdc = value,
             0xFF42 => self.registers.scy = value,
             0xFF43 => self.registers.scx = value,
             0xFF47 => self.registers.bg_palette_data = value,
             0xFF48 => self.registers.obj_palette_0 = value,
             0xFF49 => self.registers.obj_palette_1 = value,
+            0xFF4A => self.registers.wy = value,
+            0xFF4B => self.registers.wx = value,
             0xFF0F => self.registers.interrupt_flag = value,
             0xFFFF => self.registers.interrupt_enable = value,
             0xFFFF => self.registers.interrupt_enable = value,
@@ -392,16 +424,10 @@ impl Bus {
         self._set(0xFF45, value)
     }
     pub fn get_wy(&self) -> u8 {
-        self._get(0xFF4A)
-    }
-    pub fn set_wy(&mut self, value: u8) {
-        self._set(0xFF4A, value)
+        self.registers.wy
     }
     pub fn get_wx(&self) -> u8 {
-        self._get(0xFF4B).overflowing_sub(7).0
-    }
-    pub fn set_wx(&mut self, value: u8) {
-        self._set(0xFF4B, value + 7)
+        self.registers.wx
     }
     pub fn get_joypad_select_buttons(&self) -> bool {
         self.registers.joypad.bit(5)

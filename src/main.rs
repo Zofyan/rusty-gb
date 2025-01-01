@@ -18,8 +18,9 @@ mod window_fetcher;
 mod input;
 mod mbc;
 
- fn main() {
-    let output = Dummy::new();
+#[macroquad::main("Emulator")]
+async fn main() {
+    let output = LCD::new(6f64);
     let input = input::Controller::new();
     let mut emu = Emulator::new(
         Path::new("test-roms").join("Kirby's Dream Land.gb").to_str().unwrap(),
@@ -27,7 +28,7 @@ mod mbc;
         output,
     );
 
-    emu.run(3000, &mut io::stdout());
+    emu.run(3000, &mut io::stdout()).await;
 }
 
 #[cfg(test)]

@@ -132,6 +132,7 @@ impl Ppu {
         }
     }
 
+    #[inline(never)]
     fn dma_tranfer(&self, bus: &mut Bus) {
         bus._set((bus.dma_address & 0xFF) + 0xFE00, bus._get(bus.dma_address));
         if bus.dma_address & 0xFF == 0x9F {
@@ -161,6 +162,7 @@ impl Ppu {
             }
         }
     }
+    #[inline(never)]
     fn oam_fetch(&mut self, bus: &mut Bus) {
         if self.ticks == self.target_ticks {
             self.window_y_hit |= bus.get_wy() == bus.get_ly();
@@ -235,6 +237,7 @@ impl Ppu {
             self.set_ppu_state(bus, PpuState::PixelTransfer);
         }
     }
+    #[inline(never)]
     fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, output: &mut dyn Output) {
         if !bus.get_ldlc_obj_enable() {
             return;
@@ -268,10 +271,11 @@ impl Ppu {
             }
         }
     }
+    #[inline(never)]
     fn pixel_tranfer(&mut self, bus: &mut Bus, output: &mut dyn Output) {
         let mut pixel = 255;
         let mut debug = 0;
-        if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus._get(0xFF4B) as i16{
+        if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16{
             self.window_fetcher.tick(bus);
             debug = 1;
 
@@ -302,6 +306,7 @@ impl Ppu {
             self.set_ppu_state(bus, PpuState::HBlank);
         }
     }
+    #[inline(never)]
     fn hblank(&mut self, bus: &mut Bus) {
         if self.ticks == self.target_ticks {
             bus.set_ly(bus.get_ly() + 1);
@@ -326,6 +331,7 @@ impl Ppu {
             }
         }
     }
+    #[inline(never)]
     fn vblank(&mut self, bus: &mut Bus, output: &mut dyn Output) {
         if self.ticks == self.target_ticks {
             if bus.get_ly() == 153 {

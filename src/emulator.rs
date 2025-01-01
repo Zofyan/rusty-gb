@@ -63,13 +63,13 @@ impl<O: Output, I: Input> Emulator<O, I> {
         }
     }
 
-    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
+    pub async fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
         let mut count: usize = 0;
         let mut timer: u64 = 0;
         loop {
             let millis = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
-            for _ in 0..17476 {
-                self.input.check_input(&mut self.bus);
+            self.input.check_input(&mut self.bus);
+            for i in 0..17476 {
                 let cycles = match self.cpu.get_ime() {
                     true => {
                         if self.bus.get_int_enable_vblank() && self.bus.get_int_request_vblank() {
@@ -103,11 +103,11 @@ impl<O: Output, I: Input> Emulator<O, I> {
                 }
                 for _ in 1..=cycles {
                     if timer % 64 == 0 {
-                        self.bus.inc(0xFF04);
+                        self.bus.registers.div = self.bus.registers.div.wrapping_add(1);
                     }
 
-                    if self.bus.get(0xFF07).bit(2) {
-                        let step_size = match self.bus.get(0xFF07) & 0x3 {
+                    if self.bus.registers.tca.bit(2) {
+                        let step_size = match self.bus.registers.tca & 0x3 {
                             0 => 256,
                             1 => 4,
                             2 => 16,
@@ -115,20 +115,20 @@ impl<O: Output, I: Input> Emulator<O, I> {
                             _ => panic!("Should be impossible!"),
                         };
                         if timer % step_size == 0 {
-                            let val = self.bus.get(0xFF05).wrapping_add(1);
-                            self.bus.set(0xFF05, val);
+                            let val = self.bus.registers.tima.wrapping_add(1);
+                            self.bus.registers.tima = val;
                             if val == 0 {
-                                self.bus.set(0xFF05, self.bus.get(0xFF06));
+                                self.bus.registers.tima = self.bus.registers.tma;
                                 self.bus.set_int_request_timer(true);
                             }
                         }
                     }
                 }
 
-                if self.bus.get(0xFF02) == 0x81 {
-                    write!(stdout, "{}", self.bus.get(0xFF01) as char).expect("Couldn't write");
+                if self.bus.registers.sc == 0x81 {
+                    write!(stdout, "{}", self.bus.registers.sb as char).expect("Couldn't write");
                     stdout.flush().expect("Couldn't flush");
-                    self.bus.set(0xFF02, 0);
+                    self.bus.registers.sc = 0;
                 }
             }
             count += 1;
@@ -136,7 +136,7 @@ impl<O: Output, I: Input> Emulator<O, I> {
                 println!("Avg FPS: {:}", self.fps.iter().sum::<f64>() / self.fps.len() as f64);
                 break;
             }
-            //next_frame().await;
+            next_frame().await;
             let diff = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() - millis;
             let time = 1_000_000.0 / diff as f64;
             self.fps.push(time);

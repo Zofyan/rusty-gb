@@ -140,7 +140,7 @@ impl Bus {
             0xe000..=0xfdff | 0xfea0..=0xfeff => {},
             0x8000..=0x9fff => {
                 match self.ppu_state {
-                    PixelTransfer => {},
+                    PixelTransfer => self.memory.set(address, value),
                     _ => self.memory.set(address, value)
                 }
             },

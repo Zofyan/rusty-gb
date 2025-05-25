@@ -1,10 +1,8 @@
 use crate::bus::Bus;
 use crate::cpu::Cpu;
-use crate::fetcher::Fetcher;
 use crate::input::Input;
-use crate::output::{Dummy, Output, LCD};
+use crate::output::Output;
 use crate::ppu::{Ppu, PpuState};
-use crate::window_fetcher::WindowFetcher;
 use bitfield::Bit;
 use macroquad::prelude::next_frame;
 use std::fs::File;
@@ -13,17 +11,17 @@ use std::{io, thread, time};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub struct Emulator<O: Output, I: Input> {
+pub struct Emulator<I: Input> {
     cpu: Cpu,
     bus: Bus,
     ppu: Ppu,
-    output: O,
+    output: Box<dyn Output>,
     input: I,
     fps: Vec<f64>,
 }
 
-impl<O: Output, I: Input> Emulator<O, I> {
-    pub fn new(rom_path: &str, input: I, output: O) -> Self {
+impl<I: Input> Emulator<I> {
+    pub fn new(rom_path: &str, input: I, output: Box<dyn Output>) -> Self {
         let rom = File::open(rom_path).expect("Could not open rom");
 
         let mut bus = Bus::new();
@@ -63,13 +61,13 @@ impl<O: Output, I: Input> Emulator<O, I> {
         }
     }
 
-    pub async fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
+    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
         let mut count: usize = 0;
         let mut timer: u64 = 0;
         loop {
             let millis = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
-            self.input.check_input(&mut self.bus);
             for i in 0..17476 {
+                self.input.check_input(&mut self.bus);
                 let cycles = match self.cpu.get_ime() {
                     true => {
                         if self.bus.get_int_enable_vblank() && self.bus.get_int_request_vblank() {
@@ -136,14 +134,14 @@ impl<O: Output, I: Input> Emulator<O, I> {
                 println!("Avg FPS: {:}", self.fps.iter().sum::<f64>() / self.fps.len() as f64);
                 break;
             }
-            next_frame().await;
+
             let diff = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() - millis;
             let time = 1_000_000.0 / diff as f64;
             self.fps.push(time);
             if time < 1_000_000.0 / 60.0 {
                 //sleep(Duration::from_micros((1_000_000.0 / 60.0 - time) as u64))
             }
-            println!("FPS: {}", time);
+            self.output.set_diagnostics(format!("FPS: {}", time).parse().unwrap());
         }
     }
 }

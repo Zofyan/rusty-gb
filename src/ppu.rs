@@ -142,7 +142,7 @@ impl Ppu {
         }
     }
 
-    pub fn tick(&mut self, bus: &mut Bus, output: &mut dyn Output) {
+    pub fn tick(&mut self, bus: &mut Bus, output: &mut Box<dyn Output>) {
         self.ticks -= 1;
         if bus.dma_address != 0 {
             self.dma_tranfer(bus);
@@ -238,7 +238,7 @@ impl Ppu {
         }
     }
     #[inline(never)]
-    fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, output: &mut dyn Output) {
+    fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, mut output: &mut Box<dyn Output>) {
         if !bus.get_ldlc_obj_enable() {
             return;
         }
@@ -272,7 +272,7 @@ impl Ppu {
         }
     }
     #[inline(never)]
-    fn pixel_tranfer(&mut self, bus: &mut Bus, output: &mut dyn Output) {
+    fn pixel_tranfer(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>) {
         let mut pixel = 255;
         let mut debug = 0;
         if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16{
@@ -332,7 +332,7 @@ impl Ppu {
         }
     }
     #[inline(never)]
-    fn vblank(&mut self, bus: &mut Bus, output: &mut dyn Output) {
+    fn vblank(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>) {
         if self.ticks == self.target_ticks {
             if bus.get_ly() == 153 {
                 self.window_y_hit = false;

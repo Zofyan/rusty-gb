@@ -42,16 +42,10 @@ impl WindowFetcher {
         }
     }
     pub fn tick(&mut self, bus: &mut Bus) {
-        self.ticks += 1;
-        if self.ticks < 2 {
-            return;
-        }
-        self.ticks = 0;
-
         match self.state {
-            ReadTileData0 | ReadTileData1 => self.read_tile_data(bus),
+            ReadTileData0 => self.read_tile_data(bus),
             PushToFIFO => self.push_to_fifo(bus),
-            ReadTileID => self.read_tile_id(bus),
+            _ => panic!("should not be possible")
         }
     }
 
@@ -67,38 +61,24 @@ impl WindowFetcher {
             }
         };
 
-        let offset2 = match self.state {
-            ReadTileData0 => 0,
-            ReadTileData1 => 1,
-            _ => unreachable!(),
-        };
-        let address = offset + offset2 + self.tile_line as u16 * 2;
-        let value = bus.get(address);
+        let address = offset + self.tile_line as u16 * 2;
+        let value1 = bus._get(address);
+        let value2 = bus._get(address + 1);
         for bit in 0..=7 {
-            match self.state {
-                ReadTileData0 => self.pixel_data[7 - bit] = (value >> bit) & 1,
-                ReadTileData1 => self.pixel_data[7 - bit] |= ((value >> bit) & 1 ) << 1,
-                _ => {
-                    panic!("invalid fetch state");
-                }
-            }
+            self.pixel_data[7 - bit] = (value1 >> bit) & 1;
+            self.pixel_data[7 - bit] |= ((value2 >> bit) & 1 ) << 1;
         }
 
-        self.state = match self.state {
-            ReadTileData0 => ReadTileData1,
-            ReadTileData1 => PushToFIFO,
-            _ => {
-                panic!("invalid fetch state");
-            }
-        }
+        self.state = PushToFIFO;
     }
     fn push_to_fifo(&mut self, bus: &mut Bus) {
-        if self.fifo_bg.len() <= 8 {
+        if self.fifo_bg.len() <= 16 {
             for i in (0..=7).rev() {
                 self.fifo_bg.push(self.pixel_data[i]);
             }
             self.tile_index = (self.tile_index + 1) % 32;
-            self.state = ReadTileID;
+            self.read_tile_id(bus);
+            self.state = ReadTileData0;
         }
     }
     fn read_tile_id(&mut self, bus: &Bus) {
@@ -107,11 +87,12 @@ impl WindowFetcher {
         self.state = ReadTileData0
     }
 
-    pub fn reset(&mut self, mmap_addr: u16, tile_line: u8){
+    pub fn reset(&mut self, mmap_addr: u16, tile_line: u8, bus: &mut Bus) {
         self.tile_index = 0;
         self.map_address = mmap_addr;
         self.tile_line = tile_line;
-        self.state = ReadTileID;
+        self.read_tile_id(bus);
+        self.state = ReadTileData0;
         self.fifo_bg.clear();
     }
 }

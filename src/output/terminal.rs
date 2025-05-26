@@ -28,11 +28,9 @@ impl Output for Terminal {
     }
     fn refresh(&mut self) -> bool {
         self.term.set_cursor_position((0, 0)).unwrap();
-        print!("{}\n", self.diagnostic_string);
-        self.term.set_cursor_position((0, 1)).unwrap();
-        for x in 0..self.pixels.len() {
-            write!(stdout(), "{}\r\n", self.pixels[x].iter().map(|x| x.unwrap().to_string()).collect::<Vec<String>>().join("")).unwrap();
-        };
+        println!("{}", self.diagnostic_string);
+        //self.term.set_cursor_position((0, 1)).unwrap();
+        println!("{}", self.pixels.iter().map(|x| x.iter().map(|x| x.unwrap().to_string()).collect::<Vec<String>>().join("")).collect::<Vec<String>>().join("\n"));
         true
     }
 
@@ -43,7 +41,7 @@ impl Output for Terminal {
 
 impl Terminal {
     pub fn new(size: f64) -> Self {
-        PALLETS.set(vec![vec![". ".custom_color(CustomColor::new(0, 0, 0)).to_string(), ". ".custom_color(CustomColor::new(80, 80, 80)).to_string(), ". ".custom_color(CustomColor::new(160, 160, 160)).to_string(), ". ".custom_color(CustomColor::new(255, 255, 255)).to_string()], vec![". ".custom_color(CustomColor::new(0, 0, 0)).to_string(), ". ".custom_color(CustomColor::new(80, 80, 80)).to_string(), ". ".custom_color(CustomColor::new(160, 160, 160)).to_string(), ". ".custom_color(CustomColor::new(255, 255, 255)).to_string()],]);
+        PALLETS.set(vec![vec![". ".custom_color(CustomColor::new(0, 0, 0)).to_string(), ". ".custom_color(CustomColor::new(80, 80, 80)).to_string(), ". ".custom_color(CustomColor::new(160, 160, 160)).to_string(), ". ".custom_color(CustomColor::new(255, 255, 255)).to_string()], vec![". ".custom_color(CustomColor::new(255, 255, 255)).to_string(), ". ".custom_color(CustomColor::new(160, 160, 160)).to_string(), ". ".custom_color(CustomColor::new(80, 80, 80)).to_string(), ". ".custom_color(CustomColor::new(0, 0, 0)).to_string()],]);
         let mut terminal = Terminal {
             palettes: vec![],
             term: ratatui::DefaultTerminal::new(CrosstermBackend::new(stdout())).expect("TODO: panic message"),

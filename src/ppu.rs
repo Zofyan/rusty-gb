@@ -132,7 +132,7 @@ impl Ppu {
         }
     }
 
-    #[inline(never)]
+
     fn dma_tranfer(&self, bus: &mut Bus) {
         bus._set((bus.dma_address & 0xFF) + 0xFE00, bus._get(bus.dma_address));
         if bus.dma_address & 0xFF == 0x9F {
@@ -165,7 +165,7 @@ impl Ppu {
             }
         }
     }
-    #[inline(never)]
+
     fn oam_fetch(&mut self, bus: &mut Bus) {
         if self.ticks <= self.target_ticks {
             self.window_y_hit |= bus.get_wy() == bus.get_ly();
@@ -181,7 +181,7 @@ impl Ppu {
                 true => 0x9C00,
                 false => 0x9800,
             } + ((bus.get_ly() - bus._get(0xFF4A)) / 8) as u16 * 32;
-            self.window_fetcher.reset(tile_map_row_addr, tile_line);
+            self.window_fetcher.reset(tile_map_row_addr, tile_line, bus);
 
             self.x_shift = (bus.get_scx() % 8) as i16;
             self.y_shift = (bus.get_scy() % 8) as i16;
@@ -240,15 +240,15 @@ impl Ppu {
             self.set_ppu_state(bus, PpuState::PixelTransfer);
         }
     }
-    #[inline(never)]
-    fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, mut output: &mut Box<dyn Output>) {
+
+    fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, mut output: &mut Box<dyn Output>) -> bool {
         if !bus.get_ldlc_obj_enable() {
-            return;
+            return false;
         }
         let mut final_pixel = (0, false, 255);
         for oam in self.oambuffer.iter() {
             if self.x - (oam.x as i16) < 8 && self.x - (oam.x as i16) >= 0 {
-                let mut bit_shift = 7 - self.x.checked_sub_unsigned(oam.x as u16).unwrap();
+                let mut bit_shift = 7 - self.x.saturating_sub_unsigned(oam.x as u16);
                 if oam.flip_x {
                     bit_shift = self.x.checked_sub_unsigned(oam.x as u16).unwrap();
                 }
@@ -273,34 +273,37 @@ impl Ppu {
                 );
             }
         }
+        final_pixel.2 != 255
     }
-    #[inline(never)]
+
     fn pixel_tranfer(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>) {
         let mut pixel = 255;
         let mut debug = 0;
-        for _ in 0..4 {
-            if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16{
-                self.window_fetcher.tick(bus);
-                debug = 1;
+        if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16{
+            self.window_fetcher.tick(bus);
+            debug = 1;
 
-                if !self.window_fetcher.fifo_bg.is_empty() {
-                    pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
+            while !self.window_fetcher.fifo_bg.is_empty() {
+                pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
+                let transparent_bg = pixel == 0;
+                if !self.oam_tranfer(bus, transparent_bg, output) {
                     output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
-                    let transparent_bg = pixel == 0;
-                    self.oam_tranfer(bus, transparent_bg, output);
-                    self.x += 1;
-                } else { self.target_ticks -= 1; }
-            } else {
-                self.fetcher.tick(bus);
-                if !self.fetcher.fifo_bg.is_empty() {
-                    pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
+                }
+                self.x += 1;
+            }
+        } else {
+            self.fetcher.tick(bus);
+            while !self.fetcher.fifo_bg.is_empty() {
+                pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
+                let transparent_bg = pixel == 0;
+
+                if !self.oam_tranfer(bus, transparent_bg, output){
                     output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
-                    let transparent_bg = pixel == 0;
-                    self.oam_tranfer(bus, transparent_bg, output);
-                    self.x += 1;
-                } else { self.target_ticks -= 1; }
+                }
+                self.x += 1;
             }
         }
+        if pixel != 255 { self.target_ticks -= 4; }
 
         if self.ticks <= self.target_ticks + 1 {
             if bus.get_ldlc_stat_hblank_stat_int() {
@@ -309,7 +312,7 @@ impl Ppu {
             self.set_ppu_state(bus, PpuState::HBlank);
         }
     }
-    #[inline(never)]
+
     fn hblank(&mut self, bus: &mut Bus) {
         if self.ticks <= self.target_ticks {
             bus.set_ly(bus.get_ly() + 1);
@@ -334,7 +337,7 @@ impl Ppu {
             }
         }
     }
-    #[inline(never)]
+
     fn vblank(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>) {
         if self.ticks <= self.target_ticks {
             if bus.get_ly() == 153 {
@@ -347,7 +350,6 @@ impl Ppu {
                 }
 
                 self.set_ppu_state(bus, PpuState::OAMFetch);
-                output.refresh();
             } else {
                 bus.set_ly(bus.get_ly() + 1);
                 self.set_ppu_state(bus, PpuState::VBlank);

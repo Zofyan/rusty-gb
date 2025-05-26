@@ -13,7 +13,6 @@ colored = "3.0.0"
 ratatui = "0.29.0"
 clap = { version = "4.5.38", features = ["derive"] }
 once_cell = "1.19.0"
-winit = "0.29.15"
 async-trait = "0.1.88"
 miniquad = "0.4.8"
 

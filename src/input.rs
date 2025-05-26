@@ -40,3 +40,23 @@ impl Input for Controller{
     }
 }
 
+pub struct Keyboard {
+}
+impl Keyboard {
+    pub fn new() -> Self{
+        let girls = Gilrs::new().unwrap();
+        for (id, gamepad) in girls.gamepads() {
+            println!("Gamepad with id {} and name {} is connected",
+                     id, gamepad.name());
+        }
+        Keyboard {
+        }
+    }
+}
+impl Input for Keyboard {
+    fn check_input(&mut self, bus: &mut Bus) {
+        bus.reset_joypad_buttons();
+        bus.set_int_request_joypad(false);
+    }
+}
+

@@ -43,12 +43,12 @@ fn main() {
     };
     let input = input::Dummy::new();
     let mut emu = Emulator::new(
-        Path::new("test-roms").join("Tetris.gb").to_str().unwrap(),
+        Path::new("test-roms").join("Pokemon Red.gb").to_str().unwrap(),
         input,
         output,
     );
 
-    emu.run(60*20, &mut io::stdout());
+    emu.run(60*200, &mut io::stdout());
 }
 
 #[cfg(test)]

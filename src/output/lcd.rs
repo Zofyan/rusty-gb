@@ -1,7 +1,5 @@
-use miniquad::*;
 use macroquad::prelude::*;
 use std::fmt::Debug;
-use std::process::exit;
 use std::time::Duration;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
@@ -10,7 +8,6 @@ use winit::{
     window::WindowBuilder,
 };
 use winit::event::*;
-use winit::event_loop::ControlFlow;
 use winit::event::Event;
 use winit::event::WindowEvent;
 use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};

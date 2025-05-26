@@ -15,17 +15,17 @@ pub struct Memory {
     pub(crate) current_rom: u16,
     pub(crate) current_eram: u16,
     pub eram_enable: bool,
-    pub(crate) banking_mode: u8
+    pub(crate) banking_mode: u8,
+    pub(crate) rom_address_cache: usize
 }
 impl Memory {
     pub fn new() -> Memory {
-        Memory { rom: vec![0; (ROM_0_SIZE + ROM_N_SIZE) as usize], vram: vec![0; VRAM_SIZE as usize], eram: vec![0; ERAM_SIZE as usize], wram_0: vec![0; WRAM_0_SIZE as usize], wram_n: vec![0; WRAM_N_SIZE as usize], oam: vec![0; OAM_SIZE as usize], io_registers: vec![0; IO_REGISTERS_SIZE as usize], hram: vec![0; HRAM_SIZE as usize], int_enable: vec![0; INT_ENABLE_SIZE as usize], extra_rom: vec![], current_rom: 0, current_eram: 0, banking_mode: 0, eram_enable: false }
+        Memory { rom: vec![0; (ROM_0_SIZE + ROM_N_SIZE) as usize], vram: vec![0; VRAM_SIZE as usize], eram: vec![0; ERAM_SIZE as usize], wram_0: vec![0; WRAM_0_SIZE as usize], wram_n: vec![0; WRAM_N_SIZE as usize], oam: vec![0; OAM_SIZE as usize], io_registers: vec![0; IO_REGISTERS_SIZE as usize], hram: vec![0; HRAM_SIZE as usize], int_enable: vec![0; INT_ENABLE_SIZE as usize], extra_rom: vec![], current_rom: 0, current_eram: 0, banking_mode: 0, eram_enable: false, rom_address_cache: 0 }
     }
     pub fn get(&self, address: u16) -> u8 {
-        let full_address = address as usize;
         match address {
-            ..=ROM_0_END => self.rom[full_address],
-            ROM_N..=ROM_N_END => self.rom[(self.current_rom as usize - 1) * ROM_N_SIZE as usize + full_address],
+            ..=ROM_0_END => self.rom[address as usize],
+            ROM_N..=ROM_N_END => self.rom[self.rom_address_cache + address as usize],
             VRAM..=VRAM_END => self.vram[(address - VRAM) as usize],
             ERAM..=ERAM_END => self.eram[(self.current_eram * ERAM_SIZE + (address - ERAM)) as usize],
             WRAM_0..=WRAM_0_END => self.wram_0[(address - WRAM_0) as usize],
@@ -39,8 +39,8 @@ impl Memory {
     }
     pub fn set(&mut self, address: u16, value: u8) {
         let target = match address {
-            ..=ROM_0_END => panic!("Read only memmory, bug in MBC? {:#04x}", address),
-            ROM_N..=ROM_N_END => panic!("Read only memmory, bug in MBC? {:#04x}", address),
+            ..=ROM_0_END => panic!("Read only memory, bug in MBC? {:#04x}", address),
+            ROM_N..=ROM_N_END => panic!("Read only memory, bug in MBC? {:#04x}", address),
             VRAM..=VRAM_END => &mut self.vram[(address - VRAM) as usize],
             ERAM..=ERAM_END => &mut self.eram[(self.current_eram * ERAM_SIZE + (address - ERAM)) as usize],
             WRAM_0..=WRAM_0_END => &mut self.wram_0[(address - WRAM_0) as usize],

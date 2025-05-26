@@ -96,7 +96,7 @@ impl<I: Input> Emulator<I> {
                 };
                 timer += cycles as u64;
 
-                for _ in 1..=cycles * 4 {
+                for _ in 1..=cycles {
                     self.ppu.tick(&mut self.bus, &mut self.output);
                 }
                 for _ in 1..=cycles {

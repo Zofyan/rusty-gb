@@ -64,7 +64,7 @@ impl<I: Input> Emulator<I> {
     pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
         let mut count: usize = 0;
         let mut timer: u64 = 0;
-        loop {
+        while self.output.refresh() {
             let millis = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
             for i in 0..17476 {
                 self.input.check_input(&mut self.bus);
@@ -136,6 +136,7 @@ impl<I: Input> Emulator<I> {
             }
 
             let diff = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() - millis;
+
             let time = 1_000_000.0 / diff as f64;
             self.fps.push(time);
             if time < 1_000_000.0 / 60.0 {

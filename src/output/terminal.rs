@@ -26,13 +26,14 @@ impl Output for Terminal {
             self.pixels[y as usize][x as usize] = Option::from(character);
         }
     }
-    fn refresh(&mut self) {
+    fn refresh(&mut self) -> bool {
         self.term.set_cursor_position((0, 0)).unwrap();
         print!("{}\n", self.diagnostic_string);
         self.term.set_cursor_position((0, 1)).unwrap();
         for x in 0..self.pixels.len() {
             write!(stdout(), "{}\r\n", self.pixels[x].iter().map(|x| x.unwrap().to_string()).collect::<Vec<String>>().join("")).unwrap();
-        }
+        };
+        true
     }
 
     fn set_diagnostics(&mut self, diagnostics: String) {

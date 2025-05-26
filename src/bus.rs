@@ -484,58 +484,58 @@ mod tests {
     #[test]
     fn rlc() {
         let mut bus = Bus::new();
-        bus.set(0xB000, 0x80);
+        bus.set(0x8000, 0x80);
 
-        let (z, _, h, c) = bus.rlc(false, false, 0, 0xB000);
+        let (z, _, h, c) = bus.rlc(false, false, 0, 0x8000);
         assert_eq!(z, false);
         assert_eq!(h, false);
         assert_eq!(c, true);
-        assert_eq!(bus.get(0xB000), 0x01);
+        assert_eq!(bus.get(0x8000), 0x01);
     }
     #[test]
     fn sra() {
         let mut bus = Bus::new();
-        bus.set(0xB000, 0x01);
+        bus.set(0x8000, 0x01);
 
-        let (z, _, h, c) = bus.sra(false, false, 0, 0xB000);
+        let (z, _, h, c) = bus.sra(false, false, 0, 0x8000);
         assert_eq!(z, true);
         assert_eq!(h, false);
         assert_eq!(c, true);
-        assert_eq!(bus.get(0xB000), 0x00);
+        assert_eq!(bus.get(0x8000), 0x00);
     }
     #[test]
     fn rr() {
         let mut bus = Bus::new();
 
-        bus.set(0xB000, 0x7C);
+        bus.set(0x8000, 0x7C);
 
-        let (_, _, _, c) = bus.rr(false, true, 0, 0xB000);
+        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
         assert_eq!(c, false);
-        assert_eq!(bus.get(0xB000), 0xBE);
+        assert_eq!(bus.get(0x8000), 0xBE);
 
-        bus.set(0xB000, 0x3D);
+        bus.set(0x8000, 0x3D);
 
-        let (_, _, _, c) = bus.rr(false, true, 0, 0xB000);
+        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
         assert_eq!(c, true);
-        assert_eq!(bus.get(0xB000), 0x9E);
+        assert_eq!(bus.get(0x8000), 0x9E);
 
-        bus.set(0xB000, 0xFF);
+        bus.set(0x8000, 0xFF);
 
-        let (_, _, _, c) = bus.rr(false, true, 0, 0xB000);
+        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
         assert_eq!(c, true);
-        assert_eq!(bus.get(0xB000), 0xFF);
+        assert_eq!(bus.get(0x8000), 0xFF);
 
-        bus.set(0xB000, 0x47);
+        bus.set(0x8000, 0x47);
 
-        let (_, _, _, c) = bus.rr(false, false, 0, 0xB000);
+        let (_, _, _, c) = bus.rr(false, false, 0, 0x8000);
         assert_eq!(c, true);
-        assert_eq!(bus.get(0xB000), 0x23);
+        assert_eq!(bus.get(0x8000), 0x23);
 
     }
 
     #[test]
     fn standard() {
         let mut bus = Bus::new();
-        assert_eq!(bus.get_ly(), 0);
+        assert_eq!(bus.get_ly(), 91);
     }
 }

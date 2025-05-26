@@ -38,24 +38,18 @@ impl Fetcher {
             tile_id: 0,
             pixel_data: [0; 16],
             oams: vec![],
-            fifo_bg: vec![],
-            fifo_sprite: vec![],
+            fifo_bg: Vec::with_capacity(16),
+            fifo_sprite: Vec::with_capacity(16),
             state: FetcherState::ReadTileID,
             line_index: 0,
             tiles_set: true,
         }
     }
     pub fn tick(&mut self, bus: &mut Bus) {
-        self.ticks += 1;
-        if self.ticks < 2 {
-            return;
-        }
-        self.ticks = 0;
-
         match self.state {
-            FetcherState::ReadTileData0 | FetcherState::ReadTileData1 => self.read_tile_data(bus),
+            FetcherState::ReadTileData0 => self.read_tile_data(bus),
             FetcherState::PushToFIFO => self.push_to_fifo(bus),
-            FetcherState::ReadTileID => self.read_tile_id(bus),
+            _ => panic!("should not be possible")
         }
     }
 
@@ -71,44 +65,27 @@ impl Fetcher {
                 }
             }
         };
-        let offset2 = match self.state {
-            FetcherState::ReadTileData0 => 0,
-            FetcherState::ReadTileData1 => 1,
-            _ => unreachable!(),
-        };
-        let address = offset + offset2 + self.tile_line as u16 * 2;
-        let value = bus._get(address);
+        let address = offset + self.tile_line as u16 * 2;
+        let value1 = bus._get(address);
+        let value2 = bus._get(address + 1);
+
         for bit in 0..=7 {
-            match self.state {
-                FetcherState::ReadTileData0 => self.pixel_data[7 - bit] = (value >> bit) & 1,
-                FetcherState::ReadTileData1 => self.pixel_data[7 - bit] |= ((value >> bit) & 1 ) << 1,
-                _ => {
-                    panic!("invalid fetch state");
-                }
-            }
+            self.pixel_data[7 - bit] = (value1 >> bit) & 1 | ((value2 >> bit) & 1 ) << 1;
         }
 
-        self.state = match self.state {
-            FetcherState::ReadTileData0 => FetcherState::ReadTileData1,
-            FetcherState::ReadTileData1 => FetcherState::PushToFIFO,
-            _ => {
-                panic!("invalid fetch state");
-            }
-        }
+        self.state = FetcherState::PushToFIFO;
     }
     fn push_to_fifo(&mut self, bus: &mut Bus) {
-        if self.fifo_bg.len() <= 8 {
-            for i in (0..=7).rev() {
-                self.fifo_bg.push(self.pixel_data[i]);
-            }
+        if self.fifo_bg.len() <= 16 {
+            self.fifo_bg.extend(self.pixel_data[..=7].iter().rev());
             self.tile_index = (self.tile_index + 1) % 32;
-            self.state = FetcherState::ReadTileID;
+            self.read_tile_id(bus);
         }
     }
     fn read_tile_id(&mut self, bus: &Bus) {
         self.tile_id = bus._get(self.map_address + self.tile_index as u16 + self.line_index as u16 * 32);
         self.pixel_data.fill(0);
-        self.state =FetcherState:: ReadTileData0
+        self.state = FetcherState:: ReadTileData0
     }
 
     pub fn reset(&mut self, mmap_addr: u16, tile_line: u8, bus: &Bus){
@@ -116,7 +93,8 @@ impl Fetcher {
         self.line_index = (bus.get_scy() / 8 + bus.get_ly() / 8) % 32;
         self.map_address = mmap_addr;
         self.tile_line = tile_line;
-        self.state = FetcherState::ReadTileID;
+        self.read_tile_id(bus);
+        self.state = FetcherState::ReadTileData0;
         self.fifo_bg.clear();
     }
 }

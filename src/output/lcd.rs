@@ -38,7 +38,6 @@ impl Output for LCD {
         let x = x as usize;
         let y = y as usize;
         let frame: &mut [u8] = self.pixels.frame_mut();
-        let scale = self.size as usize;
         frame[x * 4 + y * 4 * 160 + 0] = c;
         frame[x * 4 + y * 4 * 160 + 1] = (c as f64 * 1.33) as u8;
         frame[x * 4 + y * 4 * 160 + 2] = c;

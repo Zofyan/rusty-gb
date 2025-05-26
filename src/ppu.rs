@@ -143,8 +143,11 @@ impl Ppu {
     }
 
     pub fn tick(&mut self, bus: &mut Bus, output: &mut Box<dyn Output>) {
-        self.ticks -= 1;
+        self.ticks -= 4;
         if bus.dma_address != 0 {
+            self.dma_tranfer(bus);
+            self.dma_tranfer(bus);
+            self.dma_tranfer(bus);
             self.dma_tranfer(bus);
         }
         match self.state {
@@ -164,7 +167,7 @@ impl Ppu {
     }
     #[inline(never)]
     fn oam_fetch(&mut self, bus: &mut Bus) {
-        if self.ticks == self.target_ticks {
+        if self.ticks <= self.target_ticks {
             self.window_y_hit |= bus.get_wy() == bus.get_ly();
             let tile_line = bus.get_ly() % 8;
 
@@ -275,31 +278,31 @@ impl Ppu {
     fn pixel_tranfer(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>) {
         let mut pixel = 255;
         let mut debug = 0;
-        if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16{
-            self.window_fetcher.tick(bus);
-            debug = 1;
+        for _ in 0..4 {
+            if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16{
+                self.window_fetcher.tick(bus);
+                debug = 1;
 
-            if !self.window_fetcher.fifo_bg.is_empty() {
-                pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
-            }
-        } else {
-            self.fetcher.tick(bus);
-            if !self.fetcher.fifo_bg.is_empty() {
-                pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
+                if !self.window_fetcher.fifo_bg.is_empty() {
+                    pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
+                    output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
+                    let transparent_bg = pixel == 0;
+                    self.oam_tranfer(bus, transparent_bg, output);
+                    self.x += 1;
+                } else { self.target_ticks -= 1; }
+            } else {
+                self.fetcher.tick(bus);
+                if !self.fetcher.fifo_bg.is_empty() {
+                    pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
+                    output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
+                    let transparent_bg = pixel == 0;
+                    self.oam_tranfer(bus, transparent_bg, output);
+                    self.x += 1;
+                } else { self.target_ticks -= 1; }
             }
         }
-        if pixel != 255 {
-            output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
-            let transparent_bg = pixel == 0;
-            self.oam_tranfer(bus, transparent_bg, output);
-            self.x += 1;
-        } else {
-            self.target_ticks -= 1;
-        }
 
-
-
-        if self.ticks == self.target_ticks + 1 {
+        if self.ticks <= self.target_ticks + 1 {
             if bus.get_ldlc_stat_hblank_stat_int() {
                 bus.set_int_request_lcd(true);
             }
@@ -308,7 +311,7 @@ impl Ppu {
     }
     #[inline(never)]
     fn hblank(&mut self, bus: &mut Bus) {
-        if self.ticks == self.target_ticks {
+        if self.ticks <= self.target_ticks {
             bus.set_ly(bus.get_ly() + 1);
 
             if bus.get_ly() == bus.get_lyc() {
@@ -333,7 +336,7 @@ impl Ppu {
     }
     #[inline(never)]
     fn vblank(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>) {
-        if self.ticks == self.target_ticks {
+        if self.ticks <= self.target_ticks {
             if bus.get_ly() == 153 {
                 self.window_y_hit = false;
 

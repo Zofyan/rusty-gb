@@ -103,7 +103,7 @@ impl Ppu {
             ticks: PPU_LINE_LENGTH,
             target_ticks: PPU_LINE_LENGTH - 80,
             state: PpuState::OAMFetch,
-            oambuffer: vec![OAM::empty(); 0],
+            oambuffer: Vec::with_capacity(10),
             x: 0,
             x_shift: 0,
             y: 0,
@@ -131,7 +131,6 @@ impl Ppu {
             PpuState::VBlank => 456,
         }
     }
-
 
     fn dma_tranfer(&self, bus: &mut Bus) {
         bus._set((bus.dma_address & 0xFF) + 0xFE00, bus._get(bus.dma_address));
@@ -198,7 +197,7 @@ impl Ppu {
                     })
                 {
                     oam.init(bus);
-                    oam.x = oam.x.wrapping_sub(8);
+                    //oam.x = oam.x.saturating_sub(8);
 
                     let mut offset = 0x8000;
                     let obj_size = bus.get_ldlc_obj_size();
@@ -237,6 +236,8 @@ impl Ppu {
                 }
             }
 
+            self.oambuffer.sort_by_key(|oam| oam.x);
+
             self.set_ppu_state(bus, PpuState::PixelTransfer);
         }
     }
@@ -245,41 +246,40 @@ impl Ppu {
         if !bus.get_ldlc_obj_enable() {
             return false;
         }
-        let mut final_pixel = (0, false, 255);
-        for oam in self.oambuffer.iter() {
-            if self.x - (oam.x as i16) < 8 && self.x - (oam.x as i16) >= 0 {
+        let mut final_pixel = (0, false);
+        for oam in self.oambuffer.iter().rev() {
+            if self.x + 8 - (oam.x as i16) < 8 && self.x + 8 - (oam.x as i16) >= 0 {
                 let mut bit_shift = 7 - self.x.saturating_sub_unsigned(oam.x as u16);
                 if oam.flip_x {
-                    bit_shift = self.x.checked_sub_unsigned(oam.x as u16).unwrap();
+                    bit_shift = self.x.wrapping_sub_unsigned(oam.x as u16);
                 }
 
                 let mut sprite_pixel = oam.data0.overflowing_shr(bit_shift as u32).0 & 0x1;
                 sprite_pixel |= (oam.data1.overflowing_shr(bit_shift as u32).0 & 0x1) << 1;
                 if !oam.priority || transparent_bg {
-                    if sprite_pixel != 0 && oam.x < final_pixel.2 {
+                    if sprite_pixel != 0 {
                         final_pixel.0 = sprite_pixel;
                         final_pixel.1 = oam.palette;
-                        final_pixel.2 = oam.x;
+                        output.write_pixel(
+                            self.x as u16,
+                            bus.get_ly() as u16,
+                            final_pixel.0,
+                            final_pixel.1,
+                            2,
+                        );
+                        return true
                     }
                 }
             }
-            if final_pixel.2 < 255 {
-                output.write_pixel(
-                    self.x as u16,
-                    bus.get_ly() as u16,
-                    final_pixel.0,
-                    final_pixel.1,
-                    2,
-                );
-            }
+
         }
-        final_pixel.2 != 255
+        false
     }
 
     fn pixel_tranfer(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>) {
         let mut pixel = 255;
         let mut debug = 0;
-        if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16{
+        if self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16 {
             self.window_fetcher.tick(bus);
             debug = 1;
 
@@ -296,7 +296,6 @@ impl Ppu {
             while !self.fetcher.fifo_bg.is_empty() {
                 pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
                 let transparent_bg = pixel == 0;
-
                 if !self.oam_tranfer(bus, transparent_bg, output){
                     output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
                 }

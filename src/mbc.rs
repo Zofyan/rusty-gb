@@ -25,6 +25,7 @@ impl MBC for MBC0 {
                 if memory.current_rom & 0b11111 == 0 {
                     memory.current_rom = 1;
                 }
+                memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
             },
             _ => {
 
@@ -58,6 +59,7 @@ impl MBC for MBC1 {
                 if memory.current_rom & 0b11111 == 0 {
                     memory.current_rom = 1;
                 }
+                memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
             },
             0x4000..=0x5FFF => {
                 if memory.eram.len() >= ByteSize::kib(16).as_u64() as usize {
@@ -65,6 +67,7 @@ impl MBC for MBC1 {
                 } else if memory.rom.len() >= ByteSize::mib(1).as_u64() as usize {
                     memory.current_rom = (value as u16 & 0b01100000) | memory.current_rom & 0b11111;
                 }
+                memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
             },
             0x6000..=0x7FFF => {
                 self.banking_mode = value & 0x1 == 1;
@@ -86,6 +89,7 @@ impl MBC for MBC2 {
                     if memory.current_rom & 0b1111 == 0 {
                         memory.current_rom = 1;
                     }
+                    memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
                 }
             },
             _ => {
@@ -150,6 +154,7 @@ impl MBC for MBC3 {
                 if memory.current_rom & 0b1111111 == 0 {
                     memory.current_rom = 1;
                 }
+                memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
             },
             0x4000..=0x5FFF => {
                 if value <= 0x03 {

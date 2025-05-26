@@ -721,31 +721,31 @@ mod tests {
         let mut cpu = Cpu::new();
         let mut bus = Bus::new();
 
-        cpu.set_pc(0xB000);
+        cpu.set_pc(0x8000);
         cpu.set_sp(0x000F);
-        bus.set(0xB001, 1);
+        bus.set(0x8001, 0x01);
         cpu.misc((0xe, 8), &mut bus);
         assert_eq!(cpu.get_sp(), 0x0010);
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_flag_c(), false);
 
-        cpu.set_pc(0xB000);
+        cpu.set_pc(0x8000);
         cpu.set_sp(0x00FF);
-        bus.set(0xB001, 1);
+        bus.set(0x8001, 1);
         cpu.misc((0xe, 8), &mut bus);
         assert_eq!(cpu.get_sp(), 0x0100);
         assert_eq!(cpu.get_flag_h(), true);
         assert_eq!(cpu.get_flag_c(), true);
 
-        cpu.set_pc(0xB000);
+        cpu.set_pc(0x8000);
         cpu.set_sp(0x0000);
-        bus.set(0xB001, 0xFF);
+        bus.set(0x8001, 0xFF);
         cpu.misc((0xe, 8), &mut bus);
         assert_eq!(cpu.get_sp(), 0xFFFF);
         assert_eq!(cpu.get_flag_h(), false);
         assert_eq!(cpu.get_flag_c(), false);
 
-        cpu.set_pc(0xB000);
+        cpu.set_pc(0x8000);
         cpu.set_sp(0x0001);
         bus.set(0xB001, 0xFF);
         cpu.misc((0xe, 8), &mut bus);
@@ -762,7 +762,7 @@ mod tests {
 
         for _ in [..=30] {
             let x1 = rng.gen_range(0..255);
-            let y1 = rng.gen_range(ROM_N_END..0xC000);
+            let y1 = rng.gen_range(0xC000..0xDFFF);
             cpu.set_pc(y1);
             bus.set(y1 + 1, x1);
 
@@ -770,12 +770,12 @@ mod tests {
             assert_eq!(cpu.get_pc(), y1.wrapping_add_signed((x1 as i8) as i16) + 2);
         }
 
-        cpu.set_pc(0xB209);
-        bus.set(0xB209 + 1, 0xFB);
+        cpu.set_pc(0x8209);
+        bus.set(0x8209 + 1, 0xFB);
         cpu.set_flag_z(false);
 
         cpu.jump((0x2, 0x0), &mut bus);
-        assert_eq!(cpu.get_pc(), 0xB206);
+        assert_eq!(cpu.get_pc(), 0x8206);
     }
     #[test]
     fn load() {
@@ -787,7 +787,7 @@ mod tests {
         let x2 = rng.gen_range(0..255);
         let x3 = rng.gen_range(0..255);
         let x4 = rng.gen_range(0..255);
-        let x5 = rng.gen_range(ROM_N_END..=0xC000);
+        let x5 = rng.gen_range(0xC000..=0xDFFF);
 
         cpu.c.set(x1);
         cpu.d.set(x2);
@@ -837,7 +837,7 @@ mod tests {
         let x3 = rng.gen_range(0..=255);
         let x4 = rng.gen_range(0..=127);
         let x5 = rng.gen_range(128..=255);
-        let y1 = rng.gen_range(ROM_N_END..=0xC000);
+        let y1 = rng.gen_range(0xC000..=0xDFFF);
 
         cpu.a.set(x1);
         cpu.d.set(x2);
@@ -1007,7 +1007,7 @@ mod tests {
     fn sub_cycle(inst: u8, cycles: usize){
         let mut cpu = Cpu::new();
         let mut bus = Bus::new();
-        cpu.set_pc(0xB000);
+        cpu.set_pc(0x8000);
         cpu.set_hl(0xB000);
         cpu.set_bc(0xB000);
         cpu.set_de(0xB000);

@@ -22,7 +22,7 @@ impl Output for LCDD {
 
     }
 
-    fn refresh(&mut self) {
+    fn refresh(&mut self) -> bool {
         for x in 0..200 {
             for y in 0..200 {
                 let c = self.pixels[x][y].0;
@@ -54,6 +54,7 @@ impl Output for LCDD {
                 }
             }
         }
+        true
     }
 }
 impl LCDD {

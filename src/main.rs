@@ -38,7 +38,7 @@ fn main() {
     let output: Box<dyn output::Output> = match args.output.as_str() {
         "Terminal" => Box::new(output::terminal::Terminal::new(args.size as f64)),
         "Dummy" => Box::new(output::dummy::Dummy::new()),
-        "LCD" => Box::new(output::lcd::LCD::new(4f64)),
+        "LCD" => Box::new(output::lcd::LCD::new(4)),
         _ => panic!("Unknown output type"),
     };
     let input = input::Dummy::new();
@@ -63,7 +63,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("01-special.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -74,7 +74,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("02-interrupts.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -85,7 +85,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("03-op sp,hl.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -96,7 +96,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("04-op r,imm.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -107,7 +107,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("05-op rp.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -118,7 +118,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("06-ld r,r.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -129,7 +129,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("07-jr,jp,call,ret,rst.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -140,7 +140,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("08-misc instrs.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -151,7 +151,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("09-op r,r.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -162,7 +162,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("10-bit ops.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);
@@ -173,7 +173,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("11-op a,(hl).gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(10_000_000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);

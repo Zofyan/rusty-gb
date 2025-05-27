@@ -125,6 +125,7 @@ impl Bus {
             0xFF49 => self.registers.obj_palette_1,
             0xFF4A => self.registers.wy,
             0xFF4B => self.registers.wx,
+            0xFF4F => self.memory.current_vram as u8,
             0xFF0F => self.registers.interrupt_flag,
             0xFFFF => self.registers.interrupt_enable,
             0xFF00 => {
@@ -192,6 +193,13 @@ impl Bus {
             0xFF49 => self.registers.obj_palette_1 = value,
             0xFF4A => self.registers.wy = value,
             0xFF4B => self.registers.wx = value,
+            0xFF4F => self.memory.current_vram = (value & 1) as u16,
+            0xFF70 => {
+                self.memory.current_wram = (value & 0b111) as u16;
+                if self.memory.current_wram == 0 {
+                    self.memory.current_wram = 1;
+                }
+            },
             0xFF0F => self.registers.interrupt_flag = value,
             0xFFFF => self.registers.interrupt_enable = value,
             0xFFFF => self.registers.interrupt_enable = value,

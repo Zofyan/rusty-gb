@@ -236,7 +236,7 @@ impl Ppu {
                 }
             }
 
-            self.oambuffer.sort_by_key(|oam| oam.x);
+            self.oambuffer.sort_by_key(|oam| 255 - oam.x);
 
             self.set_ppu_state(bus, PpuState::PixelTransfer);
         }
@@ -247,7 +247,7 @@ impl Ppu {
             return false;
         }
         let mut final_pixel = (0, false);
-        for oam in self.oambuffer.iter().rev() {
+        for oam in self.oambuffer.iter() {
             if self.x + 8 - (oam.x as i16) < 8 && self.x + 8 - (oam.x as i16) >= 0 {
                 let mut bit_shift = 7 - self.x.saturating_sub_unsigned(oam.x as u16);
                 if oam.flip_x {

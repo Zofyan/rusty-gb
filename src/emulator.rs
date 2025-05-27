@@ -6,7 +6,7 @@ use crate::ppu::{Ppu, PpuState};
 use bitfield::Bit;
 use macroquad::prelude::next_frame;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Write};
 use std::{io, thread, time};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -61,7 +61,7 @@ impl<I: Input> Emulator<I> {
         }
     }
 
-    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn io::Write) {
+    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn Write) {
         let mut count: usize = 0;
         let mut timer: u64 = 0;
         while self.output.refresh() {
@@ -96,9 +96,8 @@ impl<I: Input> Emulator<I> {
                 };
                 timer += cycles as u64;
 
-                for _ in 1..=cycles {
-                    self.ppu.tick(&mut self.bus, &mut self.output);
-                }
+                self.ppu.tick(&mut self.bus, &mut self.output, cycles);
+
                 for _ in 1..=cycles {
                     if timer % 64 == 0 {
                         self.bus.registers.div = self.bus.registers.div.wrapping_add(1);

@@ -76,7 +76,7 @@ impl Fetcher {
         self.state = FetcherState::PushToFIFO;
     }
     fn push_to_fifo(&mut self, bus: &mut Bus) {
-        if self.fifo_bg.len() <= 16 {
+        if self.fifo_bg.len() <= 8 {
             self.fifo_bg.extend(self.pixel_data[..=7].iter().rev());
             self.tile_index = (self.tile_index + 1) % 32;
             self.read_tile_id(bus);

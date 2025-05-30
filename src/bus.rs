@@ -59,6 +59,8 @@ pub struct MMAPRegisters {
     lcdc: u8,
     pub(crate) lcds: u8,
     bg_palette_data: u8,
+    cgb_bg_color_autoincrement: bool,
+    cgb_bg_color_address: u8,
     obj_palette_0: u8,
     obj_palette_1: u8,
     interrupt_enable: u8,
@@ -93,6 +95,8 @@ impl Bus {
                 lcdc: 0,
                 lcds: 0,
                 bg_palette_data: 0,
+                cgb_bg_color_autoincrement: false,
+                cgb_bg_color_address: 0,
                 obj_palette_0: 0,
                 obj_palette_1: 0,
                 interrupt_enable: 0,
@@ -194,6 +198,10 @@ impl Bus {
             0xFF4A => self.registers.wy = value,
             0xFF4B => self.registers.wx = value,
             0xFF4F => self.memory.current_vram = (value & 1) as u16,
+            0xFF68 => {
+                self.registers.cgb_bg_color_autoincrement = (value >> 7) != 0;
+                self.registers.cgb_bg_color_address = value & 0b00111111;
+            },
             0xFF70 => {
                 self.memory.current_wram = (value & 0b111) as u16;
                 if self.memory.current_wram == 0 {

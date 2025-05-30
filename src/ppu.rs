@@ -95,6 +95,7 @@ pub struct Ppu {
     fetcher: Fetcher,
     window_fetcher: WindowFetcher,
     target_ticks: usize,
+    cgb_mode: bool,
 }
 
 impl Ppu {
@@ -111,6 +112,7 @@ impl Ppu {
             window_y_hit: false,
             fetcher: Fetcher::new(),
             window_fetcher: WindowFetcher::new(),
+            cgb_mode: false,
         }
     }
     fn set_ppu_state(&mut self, bus: &mut Bus, state: PpuState) {
@@ -247,7 +249,9 @@ impl Ppu {
             }
         }
 
-            self.oambuffer.sort_by_key(|oam| 255 - oam.x);
+        if self.cgb_mode == false {
+            self.oambuffer.sort_by_key(|oam| oam.x);
+        }
 
         self.set_ppu_state(bus, PpuState::PixelTransfer);
         i
@@ -320,7 +324,7 @@ impl Ppu {
                     self.x += 1;
                 }
             }
-            if pixel != 255 { self.target_ticks -= 4 }
+            if pixel != 255 { self.target_ticks = self.target_ticks.saturating_sub(4) }
             if self.ticks <= self.target_ticks + 1 {
                 break;
             }
@@ -341,7 +345,7 @@ impl Ppu {
     fn hblank(&mut self, bus: &mut Bus, ticks: usize) ->usize{
         let mut i = 0;
         while i < ticks {
-            self.ticks -= 4;
+            self.ticks = self.ticks.saturating_sub(4);
             i += 1;
             if self.ticks <= self.target_ticks {
                 break;
@@ -376,7 +380,7 @@ impl Ppu {
     fn vblank(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>, ticks: usize) -> usize {
         let mut i = 0;
         while i < ticks {
-            self.ticks -= 4;
+            self.ticks = self.ticks.saturating_sub(4);
             i += 1;
             if self.ticks <= self.target_ticks {
                 break;

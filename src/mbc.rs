@@ -1,7 +1,11 @@
+use std::ffi::c_ushort;
+use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use bitfield::Bit;
 use bytesize::{kb, kib, ByteSize};
-use crate::bus::ROM_N_SIZE;
+use cloneable_file::CloneableFile;
+use crate::bus::{ROM_0_END, ROM_N, ROM_N_SIZE};
 use crate::memory::Memory;
 
 pub trait MBC {
@@ -9,12 +13,18 @@ pub trait MBC {
     fn read(&self, address: u16, memory: &Memory) -> u8 { memory.get(address) }
 }
 
-pub struct MBC0 {
+pub struct MBC_DUMMY { }
 
+impl MBC for MBC_DUMMY { }
+pub struct MBC0 {
+    reader: BufReader<CloneableFile>
 }
 impl MBC0 {
-    pub fn new() -> Self {
-        MBC0 {}
+    pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
+        let mut reader = BufReader::new(rom.unwrap());
+        reader.seek(SeekFrom::Start(0)).unwrap();
+        reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+        MBC0 { reader }
     }
 }
 impl MBC for MBC0 {
@@ -25,7 +35,12 @@ impl MBC for MBC0 {
                 if memory.current_rom & 0b11111 == 0 {
                     memory.current_rom = 1;
                 }
-                memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
+                memory.rom_address_cache = (memory.current_rom - 1) * ROM_N_SIZE;
+                self.reader.seek(SeekFrom::Start(0)).unwrap();
+                self.reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+                self.reader.seek(SeekFrom::Start(memory.current_rom as u64 * ROM_N_SIZE as u64)).unwrap();
+                println!("{}", memory.current_rom);
+                self.reader.read_exact(&mut memory.rom[ROM_N as usize..]).unwrap();
             },
             _ => {
 
@@ -34,18 +49,27 @@ impl MBC for MBC0 {
     }
 }
 
-pub struct MBC2 {}
+pub struct MBC2 {
+    reader: BufReader<CloneableFile>,}
 impl MBC2 {
-    pub fn new() -> Self {
-        MBC2 {}
+    pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
+        let mut reader = BufReader::new(rom.unwrap());
+        reader.seek(SeekFrom::Start(0)).unwrap();
+        reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+        reader.read_exact(&mut memory.rom[2 * ROM_N_SIZE as usize..]).unwrap();
+        MBC2 { reader }
     }
 }
 pub struct MBC1 {
+    reader: BufReader<CloneableFile>,
     banking_mode: bool
 }
 impl MBC1 {
-    pub fn new() -> Self {
-        MBC1 { banking_mode: false }
+    pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
+        let mut reader = BufReader::new(rom.unwrap());
+        reader.seek(SeekFrom::Start(0)).unwrap();
+        reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+        MBC1 { banking_mode: false, reader }
     }
 }
 impl MBC for MBC1 {
@@ -59,7 +83,11 @@ impl MBC for MBC1 {
                 if memory.current_rom & 0b11111 == 0 {
                     memory.current_rom = 1;
                 }
-                memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
+                memory.rom_address_cache = (memory.current_rom - 1) * ROM_N_SIZE;
+                self.reader.seek(SeekFrom::Start(0)).unwrap();
+                self.reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+                self.reader.seek(SeekFrom::Start(memory.current_rom as u64 * ROM_N_SIZE as u64)).unwrap();
+                self.reader.read_exact(&mut memory.rom[ROM_N as usize..]).unwrap();
             },
             0x4000..=0x5FFF => {
                 if memory.eram.len() >= ByteSize::kib(16).as_u64() as usize {
@@ -67,7 +95,11 @@ impl MBC for MBC1 {
                 } else if memory.rom.len() >= ByteSize::mib(1).as_u64() as usize {
                     memory.current_rom = (value as u16 & 0b01100000) | memory.current_rom & 0b11111;
                 }
-                memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
+                memory.rom_address_cache = (memory.current_rom - 1) * ROM_N_SIZE;
+                self.reader.seek(SeekFrom::Start(0)).unwrap();
+                self.reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+                self.reader.seek(SeekFrom::Start(memory.current_rom as u64 * ROM_N_SIZE as u64)).unwrap();
+                self.reader.read_exact(&mut memory.rom[ROM_N as usize..]).unwrap();
             },
             0x6000..=0x7FFF => {
                 self.banking_mode = value & 0x1 == 1;
@@ -89,7 +121,11 @@ impl MBC for MBC2 {
                     if memory.current_rom & 0b1111 == 0 {
                         memory.current_rom = 1;
                     }
-                    memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
+                    memory.rom_address_cache = (memory.current_rom - 1) * ROM_N_SIZE;
+                    self.reader.seek(SeekFrom::Start(0)).unwrap();
+                    self.reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+                    self.reader.seek(SeekFrom::Start(memory.current_rom as u64 * ROM_N_SIZE as u64)).unwrap();
+                    self.reader.read_exact(&mut memory.rom[ROM_N as usize..]).unwrap();
                 }
             },
             _ => {
@@ -100,12 +136,14 @@ impl MBC for MBC2 {
 }
 
 pub struct MBC3 {
+    reader: BufReader<CloneableFile>,
     rtc_registers: bool,
     rtc_register: u8
 }
 impl MBC3 {
-    pub fn new() -> Self {
-        MBC3 { rtc_registers: false, rtc_register: 0x08 }
+    pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
+        let mut reader = BufReader::new(rom.unwrap());
+        MBC3 { rtc_registers: false, rtc_register: 0x08, reader }
     }
 }
 impl MBC for MBC3 {
@@ -154,7 +192,11 @@ impl MBC for MBC3 {
                 if memory.current_rom & 0b1111111 == 0 {
                     memory.current_rom = 1;
                 }
-                memory.rom_address_cache = (memory.current_rom as usize - 1) * ROM_N_SIZE as usize;
+                memory.rom_address_cache = memory.current_rom * ROM_N_SIZE;
+                self.reader.seek(SeekFrom::Start(0)).unwrap();
+                self.reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+                self.reader.seek(SeekFrom::Start(memory.current_rom as u64 * ROM_N_SIZE as u64)).unwrap();
+                self.reader.read_exact(&mut memory.rom[ROM_N as usize..]).unwrap();
             },
             0x4000..=0x5FFF => {
                 if value <= 0x03 {

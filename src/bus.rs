@@ -1,10 +1,13 @@
 #![allow(dead_code)]
 
 use std::cmp::PartialEq;
+use std::fs::File;
+use std::io::{BufReader, Read, SeekFrom};
 use bitfield::{Bit, BitMut};
+use cloneable_file::CloneableFile;
 use rand::{random, Rng};
 use crate::input::Input;
-use crate::mbc::{MBC, MBC0, MBC1, MBC2, MBC3};
+use crate::mbc::{MBC, MBC0, MBC1, MBC2, MBC3, MBC_DUMMY};
 use crate::memory::Memory;
 use crate::output::Output;
 use crate::ppu::PpuState;
@@ -98,7 +101,7 @@ impl Bus {
                 interrupt_enable: 0,
                 interrupt_flag: 0,
             },
-            mbc: Box::new(MBC0::new()),
+            mbc: Box::new(MBC_DUMMY {} ),
             ppu_state: OAMFetch,
             fifo: vec![],
             dma_address: 0
@@ -450,21 +453,35 @@ impl Bus {
     pub fn reset_joypad_buttons(&mut self) {
         self.registers.joypad = self.registers.joypad | 0x0F;
     }
-    pub fn load_rom(&mut self, buffer: Vec<u8>) {
-        self.memory.load_rom(buffer);
+    pub fn load_rom(&mut self, rom: Option<CloneableFile>) {
+
+        rom.clone().unwrap().read_exact(&mut self.memory.rom[..=ROM_0_END as usize]).unwrap();
+
+        match self.get(0x0149) {
+            0x00 => {},
+            0x02 => {
+                self.memory.eram.resize(1 * ERAM_SIZE as usize, 0);
+                self.memory.current_eram = 0;
+            },
+            0x03 => {
+                self.memory.eram.resize(4 * ERAM_SIZE as usize, 0);
+                self.memory.current_eram = 0;
+            },
+            _ => panic!("Not implemented yet! {}", self.get(0x0149))
+        }
 
         match self._get(0x0147) {
             0x00 => {
-                self.mbc = Box::new(MBC0::new());
+                self.mbc = Box::new(MBC0::new(rom, &mut self.memory));
             },
             0x01 | 0x02 | 0x03 => {
-                self.mbc = Box::new(MBC1::new());
+                self.mbc = Box::new(MBC1::new(rom, &mut self.memory));
             },
             0x05 | 0x06 => {
-                self.mbc = Box::new(MBC2::new());
+                self.mbc = Box::new(MBC2::new(rom, &mut self.memory));
             },
             0x0F | 0x10 | 0x11 | 0x12 | 0x13 => {
-                self.mbc = Box::new(MBC3::new());
+                self.mbc = Box::new(MBC3::new(rom, &mut self.memory));
             }
             _ => {
                 panic!("MBC not implemented yet! {:#02x}", self._get(0x147))
@@ -479,6 +496,7 @@ impl Bus {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
     use crate::bus::{Bus};
 
     #[test]

@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::ptr::null_mut;
 use crate::bus::{ERAM, ERAM_END, ERAM_SIZE, HRAM, HRAM_END, HRAM_SIZE, INT_ENABLE, INT_ENABLE_END, INT_ENABLE_SIZE, IO_REGISTERS, IO_REGISTERS_END, IO_REGISTERS_SIZE, OAM, OAM_END, OAM_SIZE, ROM_0, ROM_0_END, ROM_0_SIZE, ROM_N, ROM_N_END, ROM_N_SIZE, VRAM, VRAM_END, VRAM_SIZE, WRAM_0, WRAM_0_END, WRAM_0_SIZE, WRAM_N, WRAM_N_END, WRAM_N_SIZE};
 
@@ -16,7 +18,7 @@ pub struct Memory {
     pub(crate) current_eram: u16,
     pub eram_enable: bool,
     pub(crate) banking_mode: u8,
-    pub(crate) rom_address_cache: usize
+    pub(crate) rom_address_cache: u16
 }
 impl Memory {
     pub fn new() -> Memory {
@@ -25,7 +27,7 @@ impl Memory {
     pub fn get(&self, address: u16) -> u8 {
         match address {
             ..=ROM_0_END => self.rom[address as usize],
-            ROM_N..=ROM_N_END => self.rom[self.rom_address_cache + address as usize],
+            ROM_N..=ROM_N_END => self.rom[address as usize],
             VRAM..=VRAM_END => self.vram[(address - VRAM) as usize],
             ERAM..=ERAM_END => self.eram[(self.current_eram * ERAM_SIZE + (address - ERAM)) as usize],
             WRAM_0..=WRAM_0_END => self.wram_0[(address - WRAM_0) as usize],
@@ -52,64 +54,5 @@ impl Memory {
             _ => panic!("Not implemented yet!")
         };
         *target = value
-    }
-    pub fn load_rom(&mut self, mut buffer: Vec<u8>) {
-        self.rom[..=ROM_0_END as usize].copy_from_slice(&buffer.drain(..ROM_N_SIZE as usize).as_slice());
-        self.current_rom = 1;
-
-        match self.get(0x0149) {
-            0x00 => {},
-            0x02 => {
-                self.eram.resize(1 * ERAM_SIZE as usize, 0);
-                self.current_eram = 0;
-            },
-            0x03 => {
-                self.eram.resize(4 * ERAM_SIZE as usize, 0);
-                self.current_eram = 0;
-            },
-            _ => panic!("Not implemented yet! {}", self.get(0x0149))
-        }
-        match self.get(0x0148) {
-            0x00 => {
-                self.rom.resize(2 * ROM_N_SIZE as usize, 0);
-                let start = ROM_N_SIZE as usize;
-                let end = start + ROM_N_SIZE as usize;
-                self.rom.get_mut(start..end).unwrap().copy_from_slice(&buffer.drain(..ROM_N_SIZE as usize).as_slice());
-
-            },
-            0x01 => {
-                self.rom.resize(4 * ROM_N_SIZE as usize, 0);
-                for i in 1..4 {
-                    let start = i * ROM_N_SIZE as usize;
-                    let end = start + ROM_N_SIZE as usize;
-                    self.rom.get_mut(start..end).unwrap().copy_from_slice(&buffer.drain(..ROM_N_SIZE as usize).as_slice());
-                }
-            },
-            0x03 => {
-                self.rom.resize(16 * ROM_N_SIZE as usize, 0);
-                for i in 1..16 {
-                    let start = i * ROM_N_SIZE as usize;
-                    let end = start + ROM_N_SIZE as usize;
-                    self.rom.get_mut(start..end).unwrap().copy_from_slice(&buffer.drain(..ROM_N_SIZE as usize).as_slice());
-                }
-            },
-            0x04 => {
-                self.rom.resize(32 * ROM_N_SIZE as usize, 0);
-                for i in 1..32 {
-                    let start = i * ROM_N_SIZE as usize;
-                    let end = start + ROM_N_SIZE as usize;
-                    self.rom.get_mut(start..end).unwrap().copy_from_slice(&buffer.drain(..ROM_N_SIZE as usize).as_slice());
-                }
-            },
-            0x05 => {
-                self.rom.resize(64 * ROM_N_SIZE as usize, 0);
-                for i in 1..64 {
-                    let start = i * ROM_N_SIZE as usize;
-                    let end = start + ROM_N_SIZE as usize;
-                    self.rom.get_mut(start..end).unwrap().copy_from_slice(&buffer.drain(..ROM_N_SIZE as usize).as_slice());
-                }
-            }
-            _ => panic!("Not implemented yet! {}", self.get(0x0148))
-        }
     }
 }

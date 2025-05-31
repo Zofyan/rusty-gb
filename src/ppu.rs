@@ -320,7 +320,7 @@ impl Ppu {
                     self.x += 1;
                 }
             }
-            if pixel != 255 { self.target_ticks -= 4 }
+            if pixel != 255 { self.target_ticks = self.target_ticks.saturating_sub(4) }
             if self.ticks <= self.target_ticks + 1 {
                 break;
             }
@@ -341,7 +341,7 @@ impl Ppu {
     fn hblank(&mut self, bus: &mut Bus, ticks: usize) ->usize{
         let mut i = 0;
         while i < ticks {
-            self.ticks -= 4;
+            self.ticks = self.ticks.saturating_sub(4);
             i += 1;
             if self.ticks <= self.target_ticks {
                 break;
@@ -376,7 +376,7 @@ impl Ppu {
     fn vblank(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>, ticks: usize) -> usize {
         let mut i = 0;
         while i < ticks {
-            self.ticks -= 4;
+            self.ticks = self.ticks.saturating_sub(4);
             i += 1;
             if self.ticks <= self.target_ticks {
                 break;

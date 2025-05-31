@@ -6,10 +6,11 @@ use crate::ppu::{Ppu, PpuState};
 use bitfield::Bit;
 use macroquad::prelude::next_frame;
 use std::fs::File;
-use std::io::{BufReader, Read, Write};
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::{io, thread, time};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use cloneable_file::CloneableFile;
 
 pub struct Emulator<I: Input> {
     cpu: Cpu,
@@ -22,22 +23,13 @@ pub struct Emulator<I: Input> {
 
 impl<I: Input> Emulator<I> {
     pub fn new(rom_path: &str, input: I, output: Box<dyn Output>) -> Self {
-        let rom = File::open(rom_path).expect("Could not open rom");
+        let rom = CloneableFile::open(rom_path).expect("Could not open rom");
 
         let mut bus = Bus::new();
         let cpu = Cpu::new();
         let ppu = Ppu::new();
 
-        let mut reader = BufReader::new(rom);
-        let mut buffer = Vec::new();
-        let result = reader.read_to_end(&mut buffer);
-        match result {
-            Ok(_) => {}
-            Err(_) => {
-                panic!("oops")
-            }
-        }
-        bus.load_rom(buffer);
+        bus.load_rom(Some(rom));
 
         bus.set_int_enable_lcd(true);
         bus.set_int_enable_joypad(true);

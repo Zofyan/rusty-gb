@@ -22,8 +22,6 @@ pub struct MBC0 {
 impl MBC0 {
     pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
         let mut reader = BufReader::new(rom.unwrap());
-        reader.seek(SeekFrom::Start(0)).unwrap();
-        reader.read_exact(&mut memory.rom[..=ROM_N_END as usize]).unwrap();
         MBC0 { reader }
     }
 }
@@ -54,8 +52,6 @@ pub struct MBC2 {
 impl MBC2 {
     pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
         let mut reader = BufReader::new(rom.unwrap());
-        reader.seek(SeekFrom::Start(0)).unwrap();
-        reader.read_exact(&mut memory.rom[..=ROM_N_END as usize]).unwrap();
         MBC2 { reader }
     }
 }
@@ -66,8 +62,6 @@ pub struct MBC1 {
 impl MBC1 {
     pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
         let mut reader = BufReader::new(rom.unwrap());
-        reader.seek(SeekFrom::Start(0)).unwrap();
-        reader.read_exact(&mut memory.rom[..=ROM_N_END as usize]).unwrap();
         MBC1 { banking_mode: false, reader }
     }
 }
@@ -142,7 +136,6 @@ pub struct MBC3 {
 impl MBC3 {
     pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
         let mut reader = BufReader::new(rom.unwrap());
-        reader.read_exact(&mut memory.rom[..=ROM_N_END as usize]).unwrap();
         MBC3 { rtc_registers: false, rtc_register: 0x08, reader }
     }
 }

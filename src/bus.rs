@@ -455,7 +455,7 @@ impl Bus {
     }
     pub fn load_rom(&mut self, rom: Option<CloneableFile>) {
 
-        rom.clone().unwrap().read_exact(&mut self.memory.rom[..=ROM_0_END as usize]).unwrap();
+        rom.clone().unwrap().read_exact(&mut self.memory.rom[..=ROM_N_END as usize]).unwrap();
 
         match self.get(0x0149) {
             0x00 => {},

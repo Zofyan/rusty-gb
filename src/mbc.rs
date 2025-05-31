@@ -5,7 +5,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use bitfield::Bit;
 use bytesize::{kb, kib, ByteSize};
 use cloneable_file::CloneableFile;
-use crate::bus::{ROM_0_END, ROM_N, ROM_N_SIZE};
+use crate::bus::{ROM_0_END, ROM_N, ROM_N_END, ROM_N_SIZE};
 use crate::memory::Memory;
 
 pub trait MBC {
@@ -23,7 +23,7 @@ impl MBC0 {
     pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
         let mut reader = BufReader::new(rom.unwrap());
         reader.seek(SeekFrom::Start(0)).unwrap();
-        reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+        reader.read_exact(&mut memory.rom[..=ROM_N_END as usize]).unwrap();
         MBC0 { reader }
     }
 }
@@ -55,8 +55,7 @@ impl MBC2 {
     pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
         let mut reader = BufReader::new(rom.unwrap());
         reader.seek(SeekFrom::Start(0)).unwrap();
-        reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
-        reader.read_exact(&mut memory.rom[2 * ROM_N_SIZE as usize..]).unwrap();
+        reader.read_exact(&mut memory.rom[..=ROM_N_END as usize]).unwrap();
         MBC2 { reader }
     }
 }
@@ -68,7 +67,7 @@ impl MBC1 {
     pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
         let mut reader = BufReader::new(rom.unwrap());
         reader.seek(SeekFrom::Start(0)).unwrap();
-        reader.read_exact(&mut memory.rom[..=ROM_0_END as usize]).unwrap();
+        reader.read_exact(&mut memory.rom[..=ROM_N_END as usize]).unwrap();
         MBC1 { banking_mode: false, reader }
     }
 }
@@ -143,6 +142,7 @@ pub struct MBC3 {
 impl MBC3 {
     pub fn new(rom: Option<CloneableFile>, memory: &mut Memory) -> Self {
         let mut reader = BufReader::new(rom.unwrap());
+        reader.read_exact(&mut memory.rom[..=ROM_N_END as usize]).unwrap();
         MBC3 { rtc_registers: false, rtc_register: 0x08, reader }
     }
 }

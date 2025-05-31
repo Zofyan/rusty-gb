@@ -27,7 +27,7 @@ mod mbc;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, default_value = "Terminal", required = false)]
+    #[arg(short, long, default_value = "Dummy", required = false)]
     output: String,
 
     #[arg(short, long, default_value = "Dummy", required = false)]
@@ -52,7 +52,7 @@ fn main() {
         output,
     );
 
-    emu.run(60*50, &mut io::stdout());
+    emu.run(60*10, &mut io::stdout());
     let peak_mem = PEAK_ALLOC.peak_usage_as_kb();
     println!("The max amount that was used {}", peak_mem);
 }

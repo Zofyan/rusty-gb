@@ -56,7 +56,7 @@ impl<I: Input> Emulator<I> {
     pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn Write) {
         let mut count: usize = 0;
         let mut timer: u64 = 0;
-        while self.output.refresh() {
+        loop {
             let millis = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
             for i in 0..17476 {
                 self.input.check_input(&mut self.bus);
@@ -123,6 +123,9 @@ impl<I: Input> Emulator<I> {
             count += 1;
             if count > max_cycles && max_cycles != 0 {
                 println!("Avg FPS: {:}", self.fps.iter().sum::<f64>() / self.fps.len() as f64);
+                break;
+            }
+            if !self.output.refresh() {
                 break;
             }
 

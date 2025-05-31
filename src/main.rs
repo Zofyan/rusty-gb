@@ -47,7 +47,7 @@ fn main() {
     };
     let input = input::Dummy::new();
     let mut emu = Emulator::new(
-        Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("01-special.gb").to_str().unwrap(),
+        Path::new("test-roms").join("Pokemon Red.gb").to_str().unwrap(),
         input,
         output,
     );
@@ -69,7 +69,7 @@ mod tests {
         let mut emu = Emulator::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("01-special.gb").to_str().unwrap(), input::Dummy::new(), Box::new(Dummy::new()));
         let mut stdout = Vec::new();
 
-        emu.run(6000, &mut stdout);
+        emu.run(600, &mut stdout);
 
         let output = String::from_utf8_lossy(&*stdout);
         assert_eq!(output.contains("Passed"), true);

@@ -1,6 +1,7 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use macroquad::miniquad::window::set_window_size;
 use macroquad::prelude::*;
-use std::fmt::Debug;
 use crate::output::Output;
 
 pub struct LCDD {

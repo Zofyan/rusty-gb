@@ -1,6 +1,5 @@
-use macroquad::prelude::*;
-use std::fmt::Debug;
-use std::time::Duration;
+use alloc::boxed::Box;
+use core::time::Duration;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
     dpi::LogicalSize,

@@ -1,17 +1,16 @@
 #![allow(dead_code)]
 
-use std::cmp::PartialEq;
-use std::fs::File;
-use std::io::{BufReader, Read, SeekFrom};
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
 use bitfield::{Bit, BitMut};
-use cloneable_file::CloneableFile;
-use rand::{random, Rng};
 use crate::input::Input;
 use crate::mbc::{MBC, MBC0, MBC1, MBC2, MBC3, MBC_DUMMY};
 use crate::memory::Memory;
 use crate::output::Output;
 use crate::ppu::PpuState;
 use crate::ppu::PpuState::{OAMFetch, PixelTransfer};
+use crate::rom::ROM;
 
 pub const ROM_0: u16 = 0x0000;
 pub const ROM_0_END: u16 = 0x3FFF;
@@ -453,9 +452,9 @@ impl Bus {
     pub fn reset_joypad_buttons(&mut self) {
         self.registers.joypad = self.registers.joypad | 0x0F;
     }
-    pub fn load_rom(&mut self, rom: Option<CloneableFile>) {
+    pub fn load_rom(&mut self, rom: Box<dyn ROM>) {
 
-        rom.clone().unwrap().read_exact(&mut self.memory.rom[..=ROM_N_END as usize]).unwrap();
+        rom.read(0, &mut self.memory.rom[..=ROM_N_END as usize]);
 
         match self.get(0x0149) {
             0x00 => {},
@@ -472,16 +471,16 @@ impl Bus {
 
         match self._get(0x0147) {
             0x00 => {
-                self.mbc = Box::new(MBC0::new(rom, &mut self.memory));
+                self.mbc = Box::new(MBC0::new(rom));
             },
             0x01 | 0x02 | 0x03 => {
-                self.mbc = Box::new(MBC1::new(rom, &mut self.memory));
+                self.mbc = Box::new(MBC1::new(rom));
             },
             0x05 | 0x06 => {
-                self.mbc = Box::new(MBC2::new(rom, &mut self.memory));
+                self.mbc = Box::new(MBC2::new(rom));
             },
             0x0F | 0x10 | 0x11 | 0x12 | 0x13 => {
-                self.mbc = Box::new(MBC3::new(rom, &mut self.memory));
+                self.mbc = Box::new(MBC3::new(rom));
             }
             _ => {
                 panic!("MBC not implemented yet! {:#02x}", self._get(0x147))
@@ -490,70 +489,5 @@ impl Bus {
 
         self.memory.set(0xFF40, 0x91);
         self.memory.set(0xFF00, 0x00);
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use std::fs::File;
-    use crate::bus::{Bus};
-
-    #[test]
-    fn rlc() {
-        let mut bus = Bus::new();
-        bus.set(0x8000, 0x80);
-
-        let (z, _, h, c) = bus.rlc(false, false, 0, 0x8000);
-        assert_eq!(z, false);
-        assert_eq!(h, false);
-        assert_eq!(c, true);
-        assert_eq!(bus.get(0x8000), 0x01);
-    }
-    #[test]
-    fn sra() {
-        let mut bus = Bus::new();
-        bus.set(0x8000, 0x01);
-
-        let (z, _, h, c) = bus.sra(false, false, 0, 0x8000);
-        assert_eq!(z, true);
-        assert_eq!(h, false);
-        assert_eq!(c, true);
-        assert_eq!(bus.get(0x8000), 0x00);
-    }
-    #[test]
-    fn rr() {
-        let mut bus = Bus::new();
-
-        bus.set(0x8000, 0x7C);
-
-        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
-        assert_eq!(c, false);
-        assert_eq!(bus.get(0x8000), 0xBE);
-
-        bus.set(0x8000, 0x3D);
-
-        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
-        assert_eq!(c, true);
-        assert_eq!(bus.get(0x8000), 0x9E);
-
-        bus.set(0x8000, 0xFF);
-
-        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
-        assert_eq!(c, true);
-        assert_eq!(bus.get(0x8000), 0xFF);
-
-        bus.set(0x8000, 0x47);
-
-        let (_, _, _, c) = bus.rr(false, false, 0, 0x8000);
-        assert_eq!(c, true);
-        assert_eq!(bus.get(0x8000), 0x23);
-
-    }
-
-    #[test]
-    fn standard() {
-        let mut bus = Bus::new();
-        assert_eq!(bus.get_ly(), 91);
     }
 }

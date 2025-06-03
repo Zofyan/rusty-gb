@@ -1,13 +1,12 @@
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::cmp::min;
 use crate::bus::{Bus, OAM};
 use crate::fetcher::Fetcher;
 use crate::output::Output;
 use crate::window_fetcher::WindowFetcher;
 use bitfield::Bit;
-use std::alloc::System;
-use std::cmp::min;
-use std::intrinsics::write_bytes;
-use std::ops::Deref;
-use std::thread;
 
 const PPU_LINE_LENGTH: usize = 456;
 pub struct OAM {

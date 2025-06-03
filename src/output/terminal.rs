@@ -1,17 +1,19 @@
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 use once_cell::sync::OnceCell;
 
 use macroquad::prelude::*;
-use std::fmt::Debug;
-use std::io;
-use std::io::{stdout, Stdout, Write};
 use colored::{Colorize, CustomColor};
+use defmt::println;
 use ratatui::backend::CrosstermBackend;
+use usbd_serial::SerialPort;
 use crate::output::Output;
 
 static PALLETS: OnceCell<Vec<Vec<String>>> = OnceCell::new();
 pub struct Terminal {
     palettes: Vec<Vec<String>>,
-    term: ratatui::Terminal<CrosstermBackend<Stdout>>,
+    term: ratatui::Terminal<CrosstermBackend<SerialPort<>>>,
     pixels: Vec<Vec<Option<&'static String>>>,
     diagnostic_string: String,
 }

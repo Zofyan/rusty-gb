@@ -1,16 +1,25 @@
+use alloc::boxed::Box;
+use alloc::{format, vec};
+use alloc::string::ToString;
+use alloc::vec::Vec;
 use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::input::Input;
 use crate::output::Output;
 use crate::ppu::{Ppu, PpuState};
 use bitfield::Bit;
-use macroquad::prelude::next_frame;
-use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom, Write};
-use std::{io, thread, time};
-use std::thread::sleep;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use cloneable_file::CloneableFile;
+use embedded_time::{duration::*, rate::*};
+use cortex_m::iprint;
+use defmt::println;
+use rp235x_hal as hal;
+use rp235x_hal::sio::MachineTimer;
+use rp235x_hal::timer::{CopyableTimer0, Timer};
+use usb_device::bus::UsbBusAllocator;
+use usbd_serial::SerialPort;
+// USB Device support
+use usb_device::{class_prelude::*, prelude::*};
+
+
 
 pub struct Emulator<I: Input> {
     cpu: Cpu,
@@ -19,17 +28,18 @@ pub struct Emulator<I: Input> {
     output: Box<dyn Output>,
     input: I,
     fps: Vec<f64>,
+    timer: Timer<CopyableTimer0>,
 }
 
 impl<I: Input> Emulator<I> {
-    pub fn new(rom_path: &str, input: I, output: Box<dyn Output>) -> Self {
-        let rom = CloneableFile::open(rom_path).expect("Could not open rom");
+    pub fn new(rom_path: &str, input: I, output: Box<dyn Output>, timer: Timer<CopyableTimer0>) -> Self {
+        let rom = Box::new(crate::rom::Flash::new(rom_path.to_string()));
 
         let mut bus = Bus::new();
         let cpu = Cpu::new();
         let ppu = Ppu::new();
 
-        bus.load_rom(Some(rom));
+        bus.load_rom(rom);
 
         bus.set_int_enable_lcd(true);
         bus.set_int_enable_joypad(true);
@@ -50,14 +60,15 @@ impl<I: Input> Emulator<I> {
             output,
             input,
             fps: vec![],
+            timer
         }
     }
 
-    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn Write) {
+    pub fn run(&mut self, max_cycles: usize) -> ! {
         let mut count: usize = 0;
         let mut timer: u64 = 0;
         loop {
-            let millis = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
+            let millis = self.timer.get_counter().duration_since_epoch().to_micros();
             for i in 0..17476 {
                 self.input.check_input(&mut self.bus);
                 let cycles = match self.cpu.get_ime() {
@@ -115,21 +126,19 @@ impl<I: Input> Emulator<I> {
                 }
 
                 if self.bus.registers.sc == 0x81 {
-                    write!(stdout, "{}", self.bus.registers.sb as char).expect("Couldn't write");
-                    stdout.flush().expect("Couldn't flush");
+                    println!("{}", self.bus.registers.sb as char);
                     self.bus.registers.sc = 0;
                 }
             }
             count += 1;
+
             if count > max_cycles && max_cycles != 0 {
-                println!("Avg FPS: {:}", self.fps.iter().sum::<f64>() / self.fps.len() as f64);
-                break;
+                println!("Avg FPS: {:?}", self.fps.iter().sum::<f64>() / self.fps.len() as f64);
             }
             if !self.output.refresh() {
-                break;
             }
 
-            let diff = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() - millis;
+            let diff = self.timer.get_counter().duration_since_epoch().to_micros() - millis;
 
             let time = 1_000_000.0 / diff as f64;
             self.fps.push(time);

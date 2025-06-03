@@ -1,13 +1,10 @@
 pub mod dummy;
-pub mod lcd;
-pub mod lcdd;
-pub mod terminal;
+//pub mod lcd;
+//pub mod lcdd;
+//pub mod terminal;
 
-use macroquad::prelude::*;
-use std::fmt::Debug;
-use std::io::{Write};
+use alloc::string::String;
 use async_trait::async_trait;
-use colored::{Colorize};
 
 #[async_trait]
 pub trait Output {

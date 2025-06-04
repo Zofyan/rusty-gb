@@ -12,6 +12,7 @@ use crate::memory::Memory;
 use crate::output::Output;
 use crate::ppu::PpuState;
 use crate::ppu::PpuState::{OAMFetch, PixelTransfer};
+use crate::rom::ROM;
 
 pub const ROM_0: u16 = 0x0000;
 pub const ROM_0_END: u16 = 0x3FFF;
@@ -453,9 +454,9 @@ impl Bus {
     pub fn reset_joypad_buttons(&mut self) {
         self.registers.joypad = self.registers.joypad | 0x0F;
     }
-    pub fn load_rom(&mut self, rom: Option<CloneableFile>) {
+    pub fn load_rom(&mut self, mut rom: Box<dyn ROM>) {
 
-        rom.clone().unwrap().read_exact(&mut self.memory.rom[..=ROM_N_END as usize]).unwrap();
+        rom.read(0, &mut self.memory.rom[..=ROM_N_END as usize]);
 
         match self.get(0x0149) {
             0x00 => {},
@@ -472,16 +473,16 @@ impl Bus {
 
         match self._get(0x0147) {
             0x00 => {
-                self.mbc = Box::new(MBC0::new(rom, &mut self.memory));
+                self.mbc = Box::new(MBC0::new(rom));
             },
             0x01 | 0x02 | 0x03 => {
-                self.mbc = Box::new(MBC1::new(rom, &mut self.memory));
+                self.mbc = Box::new(MBC1::new(rom));
             },
             0x05 | 0x06 => {
-                self.mbc = Box::new(MBC2::new(rom, &mut self.memory));
+                self.mbc = Box::new(MBC2::new(rom));
             },
             0x0F | 0x10 | 0x11 | 0x12 | 0x13 => {
-                self.mbc = Box::new(MBC3::new(rom, &mut self.memory));
+                self.mbc = Box::new(MBC3::new(rom));
             }
             _ => {
                 panic!("MBC not implemented yet! {:#02x}", self._get(0x147))

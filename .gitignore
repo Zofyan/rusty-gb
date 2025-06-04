@@ -1,2 +1,10 @@
 pandocs
 tmp
+target
+rp235x-hal-examples
+rp235x-hal
+rp235x-hal-macros
+rp-hal-common
+rp-binary-info
+picotool.exe
+check.py

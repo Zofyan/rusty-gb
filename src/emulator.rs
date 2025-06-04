@@ -11,6 +11,7 @@ use std::{io, thread, time};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use cloneable_file::CloneableFile;
+use crate::rom::ROM;
 
 pub struct Emulator<I: Input> {
     cpu: Cpu,
@@ -22,14 +23,13 @@ pub struct Emulator<I: Input> {
 }
 
 impl<I: Input> Emulator<I> {
-    pub fn new(rom_path: &str, input: I, output: Box<dyn Output>) -> Self {
-        let rom = CloneableFile::open(rom_path).expect("Could not open rom");
+    pub fn new(game: Box<dyn ROM>, input: I, output: Box<dyn Output>) -> Self {
 
         let mut bus = Bus::new();
         let cpu = Cpu::new();
         let ppu = Ppu::new();
 
-        bus.load_rom(Some(rom));
+        bus.load_rom(game);
 
         bus.set_int_enable_lcd(true);
         bus.set_int_enable_joypad(true);

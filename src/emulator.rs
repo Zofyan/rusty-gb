@@ -4,7 +4,6 @@ use crate::input::Input;
 use crate::output::Output;
 use crate::ppu::{Ppu, PpuState};
 use bitfield::Bit;
-use macroquad::prelude::next_frame;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::{io, thread, time};

@@ -45,12 +45,12 @@ impl ROM for File {
     }
 }
 pub struct Included {
-    data: Vec<u8>
+    data: &'static[u8]
 }
 
 impl Included {
-    pub fn new(data: &[u8]) -> Self {
-        Included { data: data.to_vec() }
+    pub fn new(data: &'static[u8]) -> Self {
+        Included { data }
     }
 }
 impl ROM for Included {

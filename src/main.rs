@@ -4,8 +4,6 @@ use std::ops::Deref;
 use std::path::Path;
 use clap::Parser;
 use crate::emulator::Emulator;
-use miniquad::*;
-use macroquad::prelude::*;
 use crate::input::Controller;
 use peak_alloc::PeakAlloc;
 
@@ -24,6 +22,9 @@ mod window_fetcher;
 mod input;
 mod mbc;
 mod rom;
+mod util;
+
+const ROM: &[u8] = include_bytes!("../test-roms/Tetris.gb");
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -54,7 +55,7 @@ fn main() {
         output,
     );
 
-    emu.run(60*10, &mut io::stdout());
+    emu.run(60*20, &mut io::stdout());
     let peak_mem = PEAK_ALLOC.peak_usage_as_kb();
     println!("The max amount that was used {}", peak_mem);
 }

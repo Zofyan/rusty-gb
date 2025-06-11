@@ -1,6 +1,5 @@
 use once_cell::sync::OnceCell;
 
-use macroquad::prelude::*;
 use std::fmt::Debug;
 use std::io;
 use std::io::{stdout, Stdout, Write};

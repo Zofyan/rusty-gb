@@ -1,6 +1,6 @@
 use crate::bus::{Bus, VRAM};
 use crate::ppu::OAM;
-
+use crate::util::fifo::FIFO;
 
 enum FetcherState {
     ReadTileData0,
@@ -20,8 +20,7 @@ pub struct Fetcher {
     line_index: u8,
     pub tiles_set: bool,
     pixel_data: [u8; 16],
-    oams: Vec<OAM>,
-    pub fifo_bg: Vec<u8>,
+    pub fifo_bg: FIFO,
     fifo_sprite: Vec<u8>,
     state: FetcherState,
 }
@@ -37,8 +36,7 @@ impl Fetcher {
             tile_line: 0,
             tile_id: 0,
             pixel_data: [0; 16],
-            oams: vec![],
-            fifo_bg: Vec::with_capacity(16),
+            fifo_bg: FIFO::new(),
             fifo_sprite: Vec::with_capacity(16),
             state: FetcherState::ReadTileID,
             line_index: 0,
@@ -70,14 +68,16 @@ impl Fetcher {
         let value2 = bus._get(address + 1);
 
         for bit in 0..=7 {
-            self.pixel_data[7 - bit] = (value1 >> bit) & 1 | ((value2 >> bit) & 1 ) << 1;
+            self.pixel_data[bit] = (value1 >> bit) & 1 | ((value2 >> bit) & 1 ) << 1;
         }
 
         self.state = FetcherState::PushToFIFO;
     }
     fn push_to_fifo(&mut self, bus: &mut Bus) {
-        if self.fifo_bg.len() <= 8 {
-            self.fifo_bg.extend(self.pixel_data[..=7].iter().rev());
+        if self.fifo_bg.length() <= 8 {
+            for i in 0..=7 {
+                self.fifo_bg.push(self.pixel_data[7 - i]);
+            }
             self.tile_index = (self.tile_index + 1) % 32;
             self.read_tile_id(bus);
         }

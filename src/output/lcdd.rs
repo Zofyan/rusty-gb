@@ -1,5 +1,3 @@
-use macroquad::miniquad::window::set_window_size;
-use macroquad::prelude::*;
 use std::fmt::Debug;
 use crate::output::Output;
 
@@ -23,43 +21,12 @@ impl Output for LCDD {
     }
 
     fn refresh(&mut self) -> bool {
-        for x in 0..200 {
-            for y in 0..200 {
-                let c = self.pixels[x][y].0;
-                let debug = self.pixels[x][y].1;
-                if debug == 0 {
-                    draw_rectangle(
-                        (x as f64 * self.size) as f32,
-                        (y as f64 * self.size) as f32,
-                        self.size as f32,
-                        self.size as f32,
-                        Color::new(c, c * 1.25, c, 1.00),
-                    );
-                } else if debug == 1 {
-                    draw_rectangle(
-                        (x as f64 * self.size) as f32,
-                        (y as f64 * self.size) as f32,
-                        self.size as f32,
-                        self.size as f32,
-                        Color::new(c, c, c * 1.25, 1.00),
-                    );
-                } else {
-                    draw_rectangle(
-                        (x as f64 * self.size) as f32,
-                        (y as f64 * self.size) as f32,
-                        self.size as f32,
-                        self.size as f32,
-                        Color::new(c * 1.25, c, c, 1.00),
-                    );
-                }
-            }
-        }
+
         true
     }
 }
 impl LCDD {
     pub fn new(size: f64) -> Self {
-        set_window_size(160 * size as u32, 144 * size as u32);
         LCDD {
             size,
             pixels: vec![vec![(0.0, 0); 200]; 200],

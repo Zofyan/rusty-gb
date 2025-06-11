@@ -8,6 +8,7 @@ use std::cmp::min;
 use std::intrinsics::write_bytes;
 use std::ops::Deref;
 use std::thread;
+use crate::util::stec_vec::StecVec;
 
 const PPU_LINE_LENGTH: usize = 456;
 pub struct OAM {
@@ -86,7 +87,7 @@ pub enum PpuState {
 pub struct Ppu {
     pub ticks: usize,
     pub state: PpuState,
-    pub oambuffer: Vec<OAM>,
+    pub oambuffer: StecVec<OAM>,
     x: i16,
     x_shift: i16,
     y: i16,
@@ -103,7 +104,7 @@ impl Ppu {
             ticks: PPU_LINE_LENGTH,
             target_ticks: PPU_LINE_LENGTH - 80,
             state: PpuState::OAMFetch,
-            oambuffer: Vec::with_capacity(10),
+            oambuffer: StecVec::new(),
             x: 0,
             x_shift: 0,
             y: 0,
@@ -232,7 +233,7 @@ impl Ppu {
                 oam.data0 = bus._get(addr);
                 oam.data1 = bus._get(addr + 1);
 
-                self.oambuffer.push(oam);
+                self.oambuffer.push(Some(oam));
 
                 self.target_ticks -= (11
                     - min(
@@ -247,7 +248,7 @@ impl Ppu {
             }
         }
 
-        self.oambuffer.sort_by_key(|oam| oam.x);
+        self.oambuffer.data[..=self.oambuffer.length].sort_by_key(|oam| oam.unwrap().x);
 
         self.set_ppu_state(bus, PpuState::PixelTransfer);
         i
@@ -258,7 +259,11 @@ impl Ppu {
             return false;
         }
         let mut final_pixel = (0, false);
-        for oam in self.oambuffer.iter().rev() {
+        for oam in self.oambuffer.data {
+            if oam.is_none() {
+                continue
+            }
+            let oam = oam.unwrap();
             if self.x + 8 - (oam.x as i16) < 8 && self.x + 8 - (oam.x as i16) >= 0 {
                 let mut bit_shift = 7 - self.x.saturating_sub_unsigned(oam.x as u16);
                 if oam.flip_x {
@@ -311,8 +316,8 @@ impl Ppu {
                 }
             } else {
                 self.fetcher.tick(bus);
-                while !self.fetcher.fifo_bg.is_empty() {
-                    pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
+                while self.fetcher.fifo_bg.length() != 0 {
+                    pixel = self.fetcher.fifo_bg.pop();
                     let transparent_bg = pixel == 0;
                     if !self.oam_tranfer(bus, transparent_bg, output){
                         output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);

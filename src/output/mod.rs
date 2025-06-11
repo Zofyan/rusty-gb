@@ -3,7 +3,6 @@ pub mod lcd;
 pub mod lcdd;
 pub mod terminal;
 
-use macroquad::prelude::*;
 use std::fmt::Debug;
 use std::io::{Write};
 use async_trait::async_trait;

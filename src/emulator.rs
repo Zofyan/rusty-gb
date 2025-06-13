@@ -12,17 +12,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use cloneable_file::CloneableFile;
 use crate::rom::ROM;
 
-pub struct Emulator<I: Input> {
+pub struct Emulator<I: Input, O: Output> {
     cpu: Cpu,
     bus: Bus,
     ppu: Ppu,
-    output: Box<dyn Output>,
+    output: O,
     input: I,
     fps: Vec<f64>,
 }
 
-impl<I: Input> Emulator<I> {
-    pub fn new(game: Box<dyn ROM>, input: I, output: Box<dyn Output>) -> Self {
+impl<I: Input, O: Output> Emulator<I, O> {
+    pub fn new(game: Box<dyn ROM>, input: I, output: O) -> Self {
 
         let mut bus = Bus::new();
         let cpu = Cpu::new();

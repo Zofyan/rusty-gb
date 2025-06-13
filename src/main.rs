@@ -2,10 +2,12 @@ use std::fmt::Debug;
 use std::io;
 use std::ops::Deref;
 use std::path::Path;
+use std::process::Output;
 use clap::Parser;
 use crate::emulator::Emulator;
 use crate::input::Controller;
 use peak_alloc::PeakAlloc;
+use crate::output::dummy::Dummy;
 
 #[global_allocator]
 static PEAK_ALLOC: PeakAlloc = PeakAlloc;
@@ -42,12 +44,7 @@ struct Args {
 fn main() {
     let args = Args::parse();
     let game = Box::new(rom::File::new("./test-roms/Tetris.gb".to_string()));
-    let output: Box<dyn output::Output> = match args.output.as_str() {
-        "Terminal" => Box::new(output::terminal::Terminal::new(args.size as f64)),
-        "Dummy" => Box::new(output::dummy::Dummy::new()),
-        "LCD" => Box::new(output::lcd::LCD::new(4)),
-        _ => panic!("Unknown output type"),
-    };
+    let output: output::dummy::Dummy = output::dummy::Dummy::new();
     let input = input::Dummy::new();
     let mut emu = Emulator::new(
         game,
@@ -55,7 +52,7 @@ fn main() {
         output,
     );
 
-    emu.run(60*20, &mut io::stdout());
+    emu.run(60*40, &mut io::stdout());
     let peak_mem = PEAK_ALLOC.peak_usage_as_kb();
     println!("The max amount that was used {}", peak_mem);
 }

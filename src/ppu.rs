@@ -8,7 +8,6 @@ use std::cmp::min;
 use std::intrinsics::write_bytes;
 use std::ops::Deref;
 use std::thread;
-use crate::util::stec_vec::StecVec;
 
 const PPU_LINE_LENGTH: usize = 456;
 pub struct OAM {
@@ -87,7 +86,7 @@ pub enum PpuState {
 pub struct Ppu {
     pub ticks: usize,
     pub state: PpuState,
-    pub oambuffer: StecVec<OAM>,
+    pub oambuffer: Vec<OAM>,
     x: i16,
     x_shift: i16,
     y: i16,
@@ -104,7 +103,7 @@ impl Ppu {
             ticks: PPU_LINE_LENGTH,
             target_ticks: PPU_LINE_LENGTH - 80,
             state: PpuState::OAMFetch,
-            oambuffer: StecVec::new(),
+            oambuffer: Vec::with_capacity(10),
             x: 0,
             x_shift: 0,
             y: 0,
@@ -142,7 +141,7 @@ impl Ppu {
         }
     }
 
-    pub fn tick(&mut self, bus: &mut Bus, output: &mut Box<dyn Output>, mut ticks: usize) {
+    pub fn tick<O: Output>(&mut self, bus: &mut Bus, output: &mut O, mut ticks: usize) {
         while ticks > 0 {
             if bus.dma_address != 0 {
                 for _ in 0..4 {
@@ -233,7 +232,7 @@ impl Ppu {
                 oam.data0 = bus._get(addr);
                 oam.data1 = bus._get(addr + 1);
 
-                self.oambuffer.push(Some(oam));
+                self.oambuffer.push(oam);
 
                 self.target_ticks -= (11
                     - min(
@@ -248,22 +247,18 @@ impl Ppu {
             }
         }
 
-        self.oambuffer.data[..=self.oambuffer.length].sort_by_key(|oam| oam.unwrap().x);
+        self.oambuffer.sort_by_key(|oam| oam.x);
 
         self.set_ppu_state(bus, PpuState::PixelTransfer);
         i
     }
 
-    fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, mut output: &mut Box<dyn Output>) -> bool {
+    fn oam_tranfer<O: Output>(&mut self, bus: &mut Bus, transparent_bg: bool, mut output: &mut O) -> bool {
         if !bus.get_ldlc_obj_enable() {
             return false;
         }
         let mut final_pixel = (0, false);
-        for oam in self.oambuffer.data {
-            if oam.is_none() {
-                continue
-            }
-            let oam = oam.unwrap();
+        for oam in self.oambuffer.iter().rev() {
             if self.x + 8 - (oam.x as i16) < 8 && self.x + 8 - (oam.x as i16) >= 0 {
                 let mut bit_shift = 7 - self.x.saturating_sub_unsigned(oam.x as u16);
                 if oam.flip_x {
@@ -292,7 +287,7 @@ impl Ppu {
         false
     }
 
-    fn pixel_tranfer(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>, ticks: usize) -> usize {
+    fn pixel_tranfer<O: Output>(&mut self, bus: &mut Bus, mut output: &mut O, ticks: usize) -> usize {
         let mut pixel = 255;
         let mut debug = 0;
         let condition = self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16;
@@ -316,8 +311,8 @@ impl Ppu {
                 }
             } else {
                 self.fetcher.tick(bus);
-                while self.fetcher.fifo_bg.length() != 0 {
-                    pixel = self.fetcher.fifo_bg.pop();
+                while !self.fetcher.fifo_bg.is_empty() {
+                    pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
                     let transparent_bg = pixel == 0;
                     if !self.oam_tranfer(bus, transparent_bg, output){
                         output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
@@ -378,7 +373,7 @@ impl Ppu {
         i
     }
 
-    fn vblank(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>, ticks: usize) -> usize {
+    fn vblank<O: Output>(&mut self, bus: &mut Bus, mut output: &mut O, ticks: usize) -> usize {
         let mut i = 0;
         while i < ticks {
             self.ticks = self.ticks.saturating_sub(4);

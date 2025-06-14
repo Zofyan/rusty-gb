@@ -25,7 +25,7 @@ pub struct OAM {
 
 impl OAM {
     pub fn new(index: usize, bus: &Bus) -> OAM {
-        let address = OAM + (index as u16) * 4;
+        let address = OAM as u16 + (index as u16) * 4;
         let mut oam = OAM::empty();
         oam.y = bus._get(address);
         oam.address = address;

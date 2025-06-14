@@ -4,6 +4,7 @@ use std::cmp::PartialEq;
 use std::fs::File;
 use std::io::{BufReader, Read, SeekFrom};
 use bitfield::{Bit, BitMut};
+use bytesize::{kib, mib};
 use cloneable_file::CloneableFile;
 use rand::{random, Rng};
 use crate::input::Input;
@@ -14,38 +15,38 @@ use crate::ppu::PpuState;
 use crate::ppu::PpuState::{OAMFetch, PixelTransfer};
 use crate::rom::ROM;
 
-pub const ROM_0: u16 = 0x0000;
-pub const ROM_0_END: u16 = 0x3FFF;
-pub const ROM_N: u16 = 0x4000;
-pub const ROM_N_END: u16 = 0x7FFF;
-pub const VRAM: u16 = 0x8000;
-pub const VRAM_END: u16 = 0x9FFF;
-pub const ERAM: u16 = 0xA000;
-pub const ERAM_END: u16 = 0xBFFF;
-pub const WRAM_0: u16 = 0xC000;
-pub const WRAM_0_END: u16 = 0xCFFF;
-pub const WRAM_N: u16 = 0xD000;
-pub const WRAM_N_END: u16 = 0xDFFF;
-pub const OAM: u16 = 0xFE00;
-pub const OAM_END: u16 = 0xFE9F;
-pub const IO_REGISTERS: u16 = 0xFF00;
-pub const IO_REGISTERS_END: u16 = 0xFF7F;
-pub const HRAM: u16 = 0xFF80;
-pub const HRAM_END: u16 = 0xFFFE;
-pub const INT_ENABLE: u16 = 0xFFFF;
-pub const INT_ENABLE_END: u16 = 0xFFFF;
-pub const INT_REQUEST: u16 = 0xFF0F;
+pub const ROM_0: usize = 0x0000;
+pub const ROM_0_END: usize = 0x3FFF;
+pub const ROM_N: usize = 0x4000;
+pub const ROM_N_END: usize = 0x7FFF;
+pub const VRAM: usize = 0x8000;
+pub const VRAM_END: usize = 0x9FFF;
+pub const ERAM: usize = 0xA000;
+pub const ERAM_END: usize = 0xBFFF;
+pub const WRAM_0: usize = 0xC000;
+pub const WRAM_0_END: usize = 0xCFFF;
+pub const WRAM_N: usize = 0xD000;
+pub const WRAM_N_END: usize = 0xDFFF;
+pub const OAM: usize = 0xFE00;
+pub const OAM_END: usize = 0xFE9F;
+pub const IO_REGISTERS: usize = 0xFF00;
+pub const IO_REGISTERS_END: usize = 0xFF7F;
+pub const HRAM: usize = 0xFF80;
+pub const HRAM_END: usize = 0xFFFE;
+pub const INT_ENABLE: usize = 0xFFFF;
+pub const INT_ENABLE_END: usize = 0xFFFF;
+pub const INT_REQUEST: usize = 0xFF0F;
 
-pub const ROM_0_SIZE: u16 = ROM_0_END - ROM_0 + 1;
-pub const ROM_N_SIZE: u16 = ROM_N_END - ROM_N + 1;
-pub const VRAM_SIZE: u16 = VRAM_END - VRAM + 1;
-pub const ERAM_SIZE: u16 = ERAM_END - ERAM + 1;
-pub const WRAM_0_SIZE: u16 = WRAM_0_END - WRAM_0 + 1;
-pub const WRAM_N_SIZE: u16 = WRAM_N_END - WRAM_N + 1;
-pub const OAM_SIZE: u16 = OAM_END - OAM + 1;
-pub const IO_REGISTERS_SIZE: u16 = IO_REGISTERS_END - IO_REGISTERS + 1;
-pub const HRAM_SIZE: u16 = HRAM_END - HRAM + 1;
-pub const INT_ENABLE_SIZE: u16 = INT_ENABLE_END - INT_ENABLE + 1;
+pub const ROM_0_SIZE: usize = ROM_0_END - ROM_0 + 1;
+pub const ROM_N_SIZE: usize = ROM_N_END - ROM_N + 1;
+pub const VRAM_SIZE: usize = VRAM_END - VRAM + 1;
+pub const ERAM_SIZE: usize = ERAM_END - ERAM + 1;
+pub const WRAM_0_SIZE: usize = WRAM_0_END - WRAM_0 + 1;
+pub const WRAM_N_SIZE: usize = WRAM_N_END - WRAM_N + 1;
+pub const OAM_SIZE: usize = OAM_END - OAM + 1;
+pub const IO_REGISTERS_SIZE: usize = IO_REGISTERS_END - IO_REGISTERS + 1;
+pub const HRAM_SIZE: usize = HRAM_END - HRAM + 1;
+pub const INT_ENABLE_SIZE: usize = INT_ENABLE_END - INT_ENABLE + 1;
 
 pub struct MMAPRegisters {
     pub sb: u8,
@@ -456,16 +457,26 @@ impl Bus {
     }
     pub fn load_rom(&mut self, mut rom: Box<dyn ROM>) {
 
-        rom.read(0, &mut self.memory.rom[..=ROM_N_END as usize]);
+        rom.read(0, &mut self.memory.memory[..=ROM_N_END]);
+
+        let rom_size = match self.get(0x0148) {
+            0x00 => kib(32u64),
+            0x01 => kib(64u64),
+            0x02 => kib(128u64),
+            0x03 => kib(256u64),
+            0x04 => kib(512u64),
+            0x05 => mib(1u64),
+            _ => panic!("Not implemented yet! {}", self.get(0x0149))
+        };
 
         match self.get(0x0149) {
             0x00 => {},
             0x02 => {
-                self.memory.eram.resize(1 * ERAM_SIZE as usize, 0);
+                self.memory.eram.resize(1 * ERAM_SIZE, 0);
                 self.memory.current_eram = 0;
             },
             0x03 => {
-                self.memory.eram.resize(4 * ERAM_SIZE as usize, 0);
+                self.memory.eram.resize(4 * ERAM_SIZE, 0);
                 self.memory.current_eram = 0;
             },
             _ => panic!("Not implemented yet! {}", self.get(0x0149))
@@ -476,7 +487,7 @@ impl Bus {
                 self.mbc = Box::new(MBC0::new(rom));
             },
             0x01 | 0x02 | 0x03 => {
-                self.mbc = Box::new(MBC1::new(rom));
+                self.mbc = Box::new(MBC1::new(rom, rom_size as usize));
             },
             0x05 | 0x06 => {
                 self.mbc = Box::new(MBC2::new(rom));

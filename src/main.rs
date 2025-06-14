@@ -26,7 +26,7 @@ mod mbc;
 mod rom;
 mod util;
 
-const ROM: &[u8] = include_bytes!("../test-roms/Tetris.gb");
+const ROM: &[u8] = include_bytes!("../test-roms/Pokemon Red.gb");
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -43,8 +43,8 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    let game = Box::new(rom::File::new("./test-roms/Tetris.gb".to_string()));
-    let output: output::dummy::Dummy = output::dummy::Dummy::new();
+    let game = Box::new(rom::File::new("./test-roms/Pokemon Red.gb".to_string()));
+    let output: output::lcd::LCD = output::lcd::LCD::new(4);
     let input = input::Dummy::new();
     let mut emu = Emulator::new(
         game,

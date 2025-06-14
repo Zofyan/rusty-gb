@@ -21,7 +21,7 @@ impl Cpu {
     // Constructor for Cpu
     pub fn new() -> Cpu {
         let mut cpu = Cpu { a: Register { value: 0 }, b: Register { value: 0 }, c: Register { value: 0 }, d: Register { value: 0 }, e: Register { value: 0 }, f: Register { value: 0 }, h: Register { value: 0 }, l: Register { value: 0 }, pc: 0, sp: 0, counter: 0, ime: false, halted: false };
-        cpu.set_sp(crate::bus::HRAM_END);
+        cpu.set_sp(crate::bus::HRAM_END as u16);
         cpu.set_pc(0x0100);
         cpu.set_bc(0x0013);
         cpu.set_af(0x01B0);
@@ -53,7 +53,7 @@ impl Cpu {
         //self.log(bus);
 
         if self.halted{
-            if bus.get(INT_ENABLE) & bus.get(INT_REQUEST) > 0{
+            if bus.get(INT_ENABLE as u16) & bus.get(INT_REQUEST as u16) > 0{
                 self.halted = false;
             } else{
                 return 1;

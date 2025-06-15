@@ -2,12 +2,9 @@ use std::fmt::Debug;
 use std::io;
 use std::ops::Deref;
 use std::path::Path;
-use std::process::Output;
 use clap::Parser;
 use crate::emulator::Emulator;
-use crate::input::Controller;
 use peak_alloc::PeakAlloc;
-use crate::output::dummy::Dummy;
 
 #[global_allocator]
 static PEAK_ALLOC: PeakAlloc = PeakAlloc;
@@ -44,15 +41,16 @@ struct Args {
 fn main() {
     let args = Args::parse();
     let game = Box::new(rom::File::new("./test-roms/Pokemon Red.gb".to_string()));
-    let output: output::lcd::LCD = output::lcd::LCD::new(4);
+    let output = output::dummy::Dummy::new();
     let input = input::Dummy::new();
     let mut emu = Emulator::new(
+        Path::new("test-roms").join("Pokemon Red.gb").to_str().unwrap(),
         game,
         input,
         output,
     );
 
-    emu.run(60*40, &mut io::stdout());
+    emu.run(60*200, &mut io::stdout());
     let peak_mem = PEAK_ALLOC.peak_usage_as_kb();
     println!("The max amount that was used {}", peak_mem);
 }

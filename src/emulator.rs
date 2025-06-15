@@ -2,13 +2,10 @@ use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::input::Input;
 use crate::output::Output;
-use crate::ppu::{Ppu, PpuState};
+use crate::ppu::{Ppu};
 use bitfield::Bit;
-use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom, Write};
-use std::{io, thread, time};
-use std::thread::sleep;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::io::{Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 use cloneable_file::CloneableFile;
 use crate::rom::ROM;
 
@@ -22,13 +19,14 @@ pub struct Emulator<I: Input, O: Output> {
 }
 
 impl<I: Input, O: Output> Emulator<I, O> {
-    pub fn new(game: Box<dyn ROM>, input: I, output: O) -> Self {
+    pub fn new(rom_path: &str, game: Box<dyn ROM>, input: I, output: O) -> Self {
+        let rom = CloneableFile::open(rom_path).expect("Could not open rom");
 
         let mut bus = Bus::new();
         let cpu = Cpu::new();
         let ppu = Ppu::new();
 
-        bus.load_rom(game);
+        bus.load_rom(Some(rom), game);
 
         bus.set_int_enable_lcd(true);
         bus.set_int_enable_joypad(true);

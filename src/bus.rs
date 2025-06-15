@@ -1,12 +1,11 @@
 #![allow(dead_code)]
 
 use std::cmp::PartialEq;
-use std::fs::File;
-use std::io::{BufReader, Read, SeekFrom};
+use std::io::{Read};
 use bitfield::{Bit, BitMut};
 use bytesize::{kib, mib};
 use cloneable_file::CloneableFile;
-use rand::{random, Rng};
+use rand::{Rng};
 use crate::input::Input;
 use crate::mbc::{MBC, MBC0, MBC1, MBC2, MBC3, MBC_DUMMY};
 use crate::memory::Memory;
@@ -70,7 +69,7 @@ pub struct MMAPRegisters {
     interrupt_flag: u8,
 }
 pub struct Bus {
-    memory: Memory,
+    pub(crate) memory: Memory,
     pub(crate) registers: MMAPRegisters,
     mbc: Box<dyn MBC>,
     pub ppu_state: PpuState,
@@ -455,9 +454,10 @@ impl Bus {
     pub fn reset_joypad_buttons(&mut self) {
         self.registers.joypad = self.registers.joypad | 0x0F;
     }
-    pub fn load_rom(&mut self, mut rom: Box<dyn ROM>) {
+    pub fn load_rom(&mut self, rom: Option<CloneableFile>, mut rom2: Box<dyn ROM>) {
 
-        rom.read(0, &mut self.memory.memory[..=ROM_N_END]);
+        rom.clone().unwrap().read_exact(&mut self.memory.memory[..=ROM_N_END]).unwrap();
+        //rom2.read(0, &mut self.memory.memory[..=ROM_N_END]);
 
         let rom_size = match self.get(0x0148) {
             0x00 => kib(32u64),
@@ -484,16 +484,16 @@ impl Bus {
 
         match self._get(0x0147) {
             0x00 => {
-                self.mbc = Box::new(MBC0::new(rom));
+                self.mbc = Box::new(MBC0::new(rom2));
             },
             0x01 | 0x02 | 0x03 => {
-                self.mbc = Box::new(MBC1::new(rom, rom_size as usize));
+                self.mbc = Box::new(MBC1::new(rom2, rom_size as usize));
             },
             0x05 | 0x06 => {
-                self.mbc = Box::new(MBC2::new(rom));
+                self.mbc = Box::new(MBC2::new(rom2));
             },
             0x0F | 0x10 | 0x11 | 0x12 | 0x13 => {
-                self.mbc = Box::new(MBC3::new(rom));
+                self.mbc = Box::new(MBC3::new(rom, rom2));
             }
             _ => {
                 panic!("MBC not implemented yet! {:#02x}", self._get(0x147))

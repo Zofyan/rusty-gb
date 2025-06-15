@@ -1,12 +1,15 @@
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::path::Path;
+use cloneable_file::CloneableFile;
+use crate::ROM;
 
 pub trait ROM {
     fn read_single(&self, addr: u16) -> u8 {
         0
     }
 
-    fn read(&mut self, addr: u16, buf: &mut [u8]) {
+    fn read(&mut self, addr: usize, buf: &mut [u8]) {
 
     }
 }
@@ -20,28 +23,28 @@ impl ROM for Cartridge {
         0
     }
 
-    fn read(&mut self, addr: u16, buf: &mut [u8]) {
+    fn read(&mut self, addr: usize, buf: &mut [u8]) {
 
     }
 }
 
 pub struct File {
-    reader: fs::File
+    pub reader: BufReader<fs::File>
 }
 
 impl File {
     pub fn new(rom: String) -> Self {
-        File { reader: fs::File::open(rom).expect("Could not open rom") }
+        File { reader: BufReader::new(fs::File::open(Path::new("test-roms").join("Pokemon Red.gb").to_str().unwrap(),).expect("Could not open rom")) }
     }
 }
 impl ROM for File {
-    fn read_single(&self, addr: u16) -> u8 {
+    fn read_single(&self, _: u16) -> u8 {
         0
     }
 
-    fn read(&mut self, addr: u16, buf: &mut [u8]) {
+    fn read(&mut self, addr: usize, buf: &mut [u8]) {
         self.reader.seek(SeekFrom::Start(addr as u64)).unwrap();
-        self.reader.read_exact(buf).unwrap()
+        self.reader.read_exact(buf).unwrap();
     }
 }
 pub struct Included {
@@ -58,7 +61,7 @@ impl ROM for Included {
         self.data[addr as usize]
     }
 
-    fn read(&mut self, addr: u16, buf: &mut [u8]) {
-        buf.copy_from_slice(&self.data[addr as usize..buf.len() + addr as usize])
+    fn read(&mut self, addr: usize, buf: &mut [u8]) {
+        buf.copy_from_slice(&self.data[addr..addr+buf.len()]);
     }
 }

@@ -66,10 +66,10 @@ impl Fetcher {
             }
         };
         let address = offset + self.tile_line as u16 * 2;
-        let value1 = bus._get(address);
-        let value2 = bus._get(address + 1);
+        let value1 = bus.memory.get(address);
+        let value2 = bus.memory.get(address + 1);
 
-        for bit in 0..=7 {
+        for bit in [0,1,2,3,4,5,6,7] {
             self.fifo_bg.push((value1 >> bit) & 1 | ((value2 >> bit) & 1 ) << 1);
         }
 
@@ -82,7 +82,7 @@ impl Fetcher {
         }
     }
     fn read_tile_id(&mut self, bus: &Bus) {
-        self.tile_id = bus._get(self.map_address + self.tile_index as u16 + self.line_index as u16 * 32);
+        self.tile_id = bus.memory.get(self.map_address + self.tile_index as u16 + self.line_index as u16 * 32);
         self.pixel_data.fill(0);
         self.state = FetcherState:: ReadTileData0
     }

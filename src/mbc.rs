@@ -1,11 +1,9 @@
-use std::ffi::c_ushort;
-use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::io::{BufReader};
+use std::time::{SystemTime, UNIX_EPOCH};
 use bitfield::Bit;
-use bytesize::{kb, kib, ByteSize};
+use bytesize::{ByteSize};
 use cloneable_file::CloneableFile;
-use crate::bus::{ERAM, ERAM_END, ERAM_SIZE, ROM_0_END, ROM_N, ROM_N_END, ROM_N_SIZE};
+use crate::bus::{ERAM, ERAM_END, ERAM_SIZE, ROM_N, ROM_N_END, ROM_N_SIZE};
 use crate::memory::Memory;
 use crate::rom::ROM;
 
@@ -33,7 +31,7 @@ impl MBC for MBC0 {
                 if memory.current_rom & 0b11111 == 0 {
                     memory.current_rom = 1;
                 }
-                self.reader.read((memory.current_rom * ROM_N_SIZE) as u16, &mut memory.memory[ROM_N..=ROM_N_END]);
+                self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.memory[ROM_N..=ROM_N_END]);
             },
             _ => {
 
@@ -72,7 +70,7 @@ impl MBC for MBC1 {
                     memory.current_rom = 1;
                 }
                 memory.rom_address_cache = ((memory.current_rom - 1) * ROM_N_SIZE) as u16;
-                self.reader.read((memory.current_rom * ROM_N_SIZE) as u16, &mut memory.memory[ROM_N..=ROM_N_END]);
+                self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.memory[ROM_N..=ROM_N_END]);
             },
             0x4000..=0x5FFF => {
                 if memory.eram.len() >= ByteSize::kib(16).as_u64() as usize {
@@ -81,7 +79,7 @@ impl MBC for MBC1 {
                     memory.memory[ERAM..=ERAM_END].copy_from_slice(&memory.eram[memory.current_eram * ERAM_SIZE..(memory.current_eram + 1) * ERAM_SIZE]);
                 } else if self.rom_size >= ByteSize::mib(1).as_u64() as usize {
                     memory.current_rom = ((value as u16 & 0b01100000) | memory.current_rom as u16 & 0b11111) as usize;
-                    self.reader.read((memory.current_rom * ROM_N_SIZE) as u16, &mut memory.memory[ROM_N..=ROM_N_END]);
+                    self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.memory[ROM_N..=ROM_N_END]);
                 }
             },
             0x6000..=0x7FFF => {
@@ -104,7 +102,7 @@ impl MBC for MBC2 {
                     if memory.current_rom & 0b1111 == 0 {
                         memory.current_rom = 1;
                     }
-                    self.reader.read((memory.current_rom as usize * ROM_N_SIZE) as u16, &mut memory.memory[ROM_N..=ROM_N_END]);
+                    self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.memory[ROM_N..=ROM_N_END]);
                 }
             },
             _ => {
@@ -115,13 +113,15 @@ impl MBC for MBC2 {
 }
 
 pub struct MBC3 {
-    reader: Box<dyn ROM>,
+    reader: BufReader<CloneableFile>,
+    rom: Box<dyn ROM>,
     rtc_registers: bool,
     rtc_register: u8
 }
 impl MBC3 {
-    pub fn new(rom: Box<dyn ROM>) -> Self {
-        MBC3 { rtc_registers: false, rtc_register: 0x08, reader: rom }
+    pub fn new(reader: Option<CloneableFile>, rom: Box<dyn ROM>) -> Self {
+        let mut reader = BufReader::new(reader.unwrap());
+        MBC3 { rtc_registers: false, rtc_register: 0x08, reader, rom }
     }
 }
 impl MBC for MBC3 {
@@ -170,12 +170,18 @@ impl MBC for MBC3 {
                 if memory.current_rom & 0b1111111 == 0 {
                     memory.current_rom = 1;
                 }
-                self.reader.read((memory.current_rom * ROM_N_SIZE) as u16, &mut memory.memory[ROM_N..=ROM_N_END]);
+
+
+                self.rom.read(memory.current_rom * ROM_N_SIZE, &mut memory.memory[ROM_N..=ROM_N_END]);
             },
             0x4000..=0x5FFF => {
                 if value <= 0x07 {
+                    memory.eram[memory.current_eram * ERAM_SIZE..(memory.current_eram + 1) * ERAM_SIZE].copy_from_slice(&memory.memory[ERAM..=ERAM_END]);
+
                     memory.current_eram = (value & 0b11) as usize;
                     memory.eram_enable = true;
+
+                    memory.memory[ERAM..=ERAM_END].copy_from_slice(&memory.eram[memory.current_eram * ERAM_SIZE..(memory.current_eram + 1) * ERAM_SIZE]);
                 } else if value <= 0x0c && value >= 0x08 {
                     memory.eram_enable = false;
                     self.rtc_register = value

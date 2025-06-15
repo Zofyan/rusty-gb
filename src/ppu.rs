@@ -27,14 +27,14 @@ impl OAM {
     pub fn new(index: usize, bus: &Bus) -> OAM {
         let address = OAM as u16 + (index as u16) * 4;
         let mut oam = OAM::empty();
-        oam.y = bus._get(address);
+        oam.y = bus.memory.get(address);
         oam.address = address;
         oam
     }
     pub fn init(&mut self, bus: &Bus) {
-        self.x = bus._get(self.address + 1);
-        self.tile_index = bus._get(self.address + 2);
-        let tmp = bus._get(self.address + 3);
+        self.x = bus.memory.get(self.address + 1);
+        self.tile_index = bus.memory.get(self.address + 2);
+        let tmp = bus.memory.get(self.address + 3);
         self.palette = tmp.bit(4);
         self.flip_x = tmp.bit(5);
         self.flip_y = tmp.bit(6);
@@ -133,7 +133,7 @@ impl Ppu {
     }
 
     fn dma_tranfer(&self, bus: &mut Bus) {
-        bus._set((bus.dma_address & 0xFF) + 0xFE00, bus._get(bus.dma_address));
+        bus._set((bus.dma_address & 0xFF) + 0xFE00, bus.memory.get(bus.dma_address));
         if bus.dma_address & 0xFF == 0x9F {
             bus.dma_address = 0;
         } else {
@@ -190,7 +190,7 @@ impl Ppu {
         tile_map_row_addr = match bus.get_ldlc_window_tilemap() {
             true => 0x9C00,
             false => 0x9800,
-        } + ((bus.get_ly() - bus._get(0xFF4A)) / 8) as u16 * 32;
+        } + ((bus.get_ly() - bus.memory.get(0xFF4A)) / 8) as u16 * 32;
         self.window_fetcher.reset(tile_map_row_addr, tile_line, bus);
 
         self.x_shift = (bus.get_scx() % 8) as i16;
@@ -229,8 +229,8 @@ impl Ppu {
                     addr += ((bus.get_ly() + 16 - oam.y) * 2) as u16;
                 }
 
-                oam.data0 = bus._get(addr);
-                oam.data1 = bus._get(addr + 1);
+                oam.data0 = bus.memory.get(addr);
+                oam.data1 = bus.memory.get(addr + 1);
 
                 self.oambuffer.push(oam);
 
@@ -257,25 +257,25 @@ impl Ppu {
         if !bus.get_ldlc_obj_enable() {
             return false;
         }
-        let mut final_pixel = (0, false);
+        let screen_x = self.x + 8;
         for oam in self.oambuffer.iter().rev() {
-            if self.x + 8 - (oam.x as i16) < 8 && self.x + 8 - (oam.x as i16) >= 0 {
-                let mut bit_shift = 7 - self.x.saturating_sub_unsigned(oam.x as u16);
-                if oam.flip_x {
-                    bit_shift = self.x.wrapping_sub_unsigned(oam.x as u16);
-                }
+            let diff = screen_x - (oam.x as i16);
+            if diff < 8 && diff >= 0 {
+                let shift = if oam.flip_x {
+                    diff
+                } else {
+                    7 - diff
+                } as u32;
 
-                let mut sprite_pixel = oam.data0.overflowing_shr(bit_shift as u32).0 & 0x1;
-                sprite_pixel |= (oam.data1.overflowing_shr(bit_shift as u32).0 & 0x1) << 1;
+                let mut sprite_pixel = oam.data0 >> shift & 0x1;
+                sprite_pixel |= (oam.data1 >> shift & 0x1) << 1;
                 if !oam.priority || transparent_bg {
                     if sprite_pixel != 0 {
-                        final_pixel.0 = sprite_pixel;
-                        final_pixel.1 = oam.palette;
                         output.write_pixel(
                             self.x as u16,
                             bus.get_ly() as u16,
-                            final_pixel.0,
-                            final_pixel.1,
+                            sprite_pixel,
+                            oam.palette,
                             2,
                         );
                         return true
@@ -373,7 +373,7 @@ impl Ppu {
         i
     }
 
-    fn vblank<O: Output>(&mut self, bus: &mut Bus, mut output: &mut O, ticks: usize) -> usize {
+    fn vblank<O: Output>(&mut self, bus: &mut Bus, _: &mut O, ticks: usize) -> usize {
         let mut i = 0;
         while i < ticks {
             self.ticks = self.ticks.saturating_sub(4);

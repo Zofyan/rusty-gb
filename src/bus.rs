@@ -10,7 +10,7 @@ use crate::input::Input;
 use crate::mbc::{MBC, MBC0, MBC1, MBC2, MBC3, MBC_DUMMY};
 use crate::memory::Memory;
 use crate::output::Output;
-use crate::ppu::PpuState;
+use crate::ppu::{PpuState, OAM};
 use crate::ppu::PpuState::{OAMFetch, PixelTransfer};
 use crate::rom::ROM;
 
@@ -75,6 +75,8 @@ pub struct Bus {
     pub ppu_state: PpuState,
     pub fifo: Vec<u8>,
     pub dma_address: u16,
+    pub oams: [OAM; 40]
+
 }
 
 impl Bus {
@@ -105,7 +107,8 @@ impl Bus {
             mbc: Box::new(MBC_DUMMY {} ),
             ppu_state: OAMFetch,
             fifo: vec![],
-            dma_address: 0
+            dma_address: 0,
+            oams: [OAM::empty(); 40],
         }
     }
     pub fn get(&self, address: u16) -> u8 {
@@ -175,7 +178,11 @@ impl Bus {
             0xFE00..=0xFE9F => {
                 match self.ppu_state {
                     PixelTransfer | OAMFetch => {},
-                    _ => self.memory.set(address, value)
+                    _ => {
+                        let index = (address as usize - OAM) / 4;
+                        self.oams[index].set(value, (address & 0b11) as u8);
+                        self.memory.set(address, value)
+                    }
                 }
             },
             0xFF41 => {
@@ -454,10 +461,10 @@ impl Bus {
     pub fn reset_joypad_buttons(&mut self) {
         self.registers.joypad = self.registers.joypad | 0x0F;
     }
-    pub fn load_rom(&mut self, rom: Option<CloneableFile>, mut rom2: Box<dyn ROM>) {
+    pub fn load_rom<R: ROM + 'static>(&mut self, mut rom: R) {
 
-        rom.clone().unwrap().read_exact(&mut self.memory.memory[..=ROM_N_END]).unwrap();
-        //rom2.read(0, &mut self.memory.memory[..=ROM_N_END]);
+        //rom.clone().unwrap().read_exact(&mut self.memory.memory[..=ROM_N_END]).unwrap();
+        rom.read(0, &mut self.memory.memory[..=ROM_N_END]);
 
         let rom_size = match self.get(0x0148) {
             0x00 => kib(32u64),
@@ -484,16 +491,16 @@ impl Bus {
 
         match self._get(0x0147) {
             0x00 => {
-                self.mbc = Box::new(MBC0::new(rom2));
+                self.mbc = Box::new(MBC0::new(rom));
             },
             0x01 | 0x02 | 0x03 => {
-                self.mbc = Box::new(MBC1::new(rom2, rom_size as usize));
+                self.mbc = Box::new(MBC1::new(rom, rom_size as usize));
             },
             0x05 | 0x06 => {
-                self.mbc = Box::new(MBC2::new(rom2));
+                self.mbc = Box::new(MBC2::new(rom));
             },
             0x0F | 0x10 | 0x11 | 0x12 | 0x13 => {
-                self.mbc = Box::new(MBC3::new(rom, rom2));
+                self.mbc = Box::new(MBC3::new(rom));
             }
             _ => {
                 panic!("MBC not implemented yet! {:#02x}", self._get(0x147))

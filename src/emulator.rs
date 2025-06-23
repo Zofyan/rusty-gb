@@ -19,14 +19,13 @@ pub struct Emulator<I: Input, O: Output> {
 }
 
 impl<I: Input, O: Output> Emulator<I, O> {
-    pub fn new(rom_path: &str, game: Box<dyn ROM>, input: I, output: O) -> Self {
-        let rom = CloneableFile::open(rom_path).expect("Could not open rom");
+    pub fn new<R: ROM + 'static>(game: R, input: I, output: O) -> Self {
 
         let mut bus = Bus::new();
         let cpu = Cpu::new();
         let ppu = Ppu::new();
 
-        bus.load_rom(Some(rom), game);
+        bus.load_rom(game);
 
         bus.set_int_enable_lcd(true);
         bus.set_int_enable_joypad(true);

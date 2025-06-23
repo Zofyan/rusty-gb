@@ -34,7 +34,7 @@ pub struct File {
 
 impl File {
     pub fn new(rom: String) -> Self {
-        File { reader: BufReader::new(fs::File::open(Path::new("test-roms").join("Pokemon Red.gb").to_str().unwrap(),).expect("Could not open rom")) }
+        File { reader: BufReader::new(fs::File::open(rom,).expect("Could not open rom")) }
     }
 }
 impl ROM for File {

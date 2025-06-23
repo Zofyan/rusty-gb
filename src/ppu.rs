@@ -40,6 +40,20 @@ impl OAM {
         self.flip_y = tmp.bit(6);
         self.priority = tmp.bit(7);
     }
+    pub fn set(&mut self, val: u8, index: u8) {
+        match index {
+            0 => self.y = val,
+            1 => self.x = val,
+            2 => self.tile_index = val,
+            3 => {
+                self.palette = val.bit(4);
+                self.flip_x = val.bit(5);
+                self.flip_y = val.bit(6);
+                self.priority = val.bit(7);
+            },
+            _ => { panic!("no oam") }
+        }
+    }
     pub fn empty() -> OAM {
         OAM {
             address: 0xDF,
@@ -133,8 +147,10 @@ impl Ppu {
     }
 
     fn dma_tranfer(&self, bus: &mut Bus) {
-        bus._set((bus.dma_address & 0xFF) + 0xFE00, bus.memory.get(bus.dma_address));
-        if bus.dma_address & 0xFF == 0x9F {
+        let truncated_dma_address = bus.dma_address & 0xFF;
+        let index = truncated_dma_address as usize / 4;
+        bus.oams[index].set(bus.memory.get(bus.dma_address), (bus.dma_address & 0b11) as u8);
+        if truncated_dma_address == 0x9F {
             bus.dma_address = 0;
         } else {
             bus.dma_address += 1;
@@ -142,12 +158,10 @@ impl Ppu {
     }
 
     pub fn tick<O: Output>(&mut self, bus: &mut Bus, output: &mut O, mut ticks: usize) {
+        while bus.dma_address != 0 {
+            self.dma_tranfer(bus);
+        }
         while ticks > 0 {
-            if bus.dma_address != 0 {
-                for _ in 0..4 {
-                    self.dma_tranfer(bus);
-                }
-            }
             let consumed_ticks = match self.state {
                 PpuState::OAMFetch => {
                     self.oam_fetch(bus, ticks)
@@ -168,16 +182,14 @@ impl Ppu {
 
     fn oam_fetch(&mut self, bus: &mut Bus, ticks: usize) -> usize {
         let mut i = 0;
-        while i < ticks {
-            self.ticks -= 4;
-            i += 1;
-            if self.ticks <= self.target_ticks {
-                break;
-            }
-        }
-        if i == ticks && self.ticks > self.target_ticks {
+        if ticks * 4 >= self.ticks - self.target_ticks {
+            i = (self.ticks - self.target_ticks) / 4;
+            self.ticks -= i * 4;
+        } else {
+            self.ticks -= ticks * 4;
             return ticks;
         }
+
         self.window_y_hit |= bus.get_wy() == bus.get_ly();
         let tile_line = bus.get_ly() % 8;
 
@@ -200,14 +212,13 @@ impl Ppu {
         self.oambuffer.clear();
         let mut count = 0u8;
         for i in 0..40 {
-            let mut oam = OAM::new(i, bus);
+            let mut oam = bus.oams[i];
             if (bus.get_ly().wrapping_sub(oam.y.wrapping_sub(16)))
                 < (match bus.get_ldlc_obj_size() {
                     true => 16,
                     false => 8,
                 })
             {
-                oam.init(bus);
                 //oam.x = oam.x.saturating_sub(8);
 
                 let mut offset = 0x8000;
@@ -289,7 +300,6 @@ impl Ppu {
 
     fn pixel_tranfer<O: Output>(&mut self, bus: &mut Bus, mut output: &mut O, ticks: usize) -> usize {
         let mut pixel = 255;
-        let mut debug = 0;
         let condition = self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16;
 
         let mut i = 0;
@@ -299,32 +309,39 @@ impl Ppu {
 
             if condition {
                 self.window_fetcher.tick(bus);
-                debug = 1;
-
-                while !self.window_fetcher.fifo_bg.is_empty() {
-                    pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
-                    let transparent_bg = pixel == 0;
-                    if !self.oam_tranfer(bus, transparent_bg, output) {
-                        output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
-                    }
-                    self.x += 1;
-                }
             } else {
                 self.fetcher.tick(bus);
-                while !self.fetcher.fifo_bg.is_empty() {
-                    pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
-                    let transparent_bg = pixel == 0;
-                    if !self.oam_tranfer(bus, transparent_bg, output){
-                        output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
+            };
+
+            if condition {
+                while let Some(p) = self.window_fetcher.fifo_bg.pop() {
+                    let transparent_bg = p == 0;
+                    if !self.oam_tranfer(bus, transparent_bg, output) {
+                        output.write_pixel(self.x as u16, bus.get_ly() as u16, p, false, 0);
                     }
                     self.x += 1;
+                    pixel = p;
                 }
+            } else {
+                while let Some(p) = self.fetcher.fifo_bg.pop() {
+                    let transparent_bg = p == 0;
+                    if !self.oam_tranfer(bus, transparent_bg, output) {
+                        output.write_pixel(self.x as u16, bus.get_ly() as u16, p, false, 0);
+                    }
+                    self.x += 1;
+                    pixel = p;
+                }
+            };
+
+            if pixel != 255 {
+                self.target_ticks = self.target_ticks.saturating_sub(4);
             }
-            if pixel != 255 { self.target_ticks = self.target_ticks.saturating_sub(4) }
+
             if self.ticks <= self.target_ticks + 1 {
                 break;
             }
         }
+
         if i == ticks && self.ticks > self.target_ticks {
             return ticks;
         }
@@ -335,21 +352,20 @@ impl Ppu {
             }
             self.set_ppu_state(bus, PpuState::HBlank);
         }
+
         i
     }
 
     fn hblank(&mut self, bus: &mut Bus, ticks: usize) ->usize{
         let mut i = 0;
-        while i < ticks {
-            self.ticks = self.ticks.saturating_sub(4);
-            i += 1;
-            if self.ticks <= self.target_ticks {
-                break;
-            }
-        }
-        if i == ticks && self.ticks > self.target_ticks {
+        if ticks * 4 >= self.ticks - self.target_ticks {
+            i = (self.ticks - self.target_ticks) / 4;
+            self.ticks -= i * 4;
+        } else {
+            self.ticks -= ticks * 4;
             return ticks;
         }
+
         bus.set_ly(bus.get_ly() + 1);
 
         if bus.get_ly() == bus.get_lyc() {
@@ -375,16 +391,14 @@ impl Ppu {
 
     fn vblank<O: Output>(&mut self, bus: &mut Bus, _: &mut O, ticks: usize) -> usize {
         let mut i = 0;
-        while i < ticks {
-            self.ticks = self.ticks.saturating_sub(4);
-            i += 1;
-            if self.ticks <= self.target_ticks {
-                break;
-            }
-        }
-        if i == ticks && self.ticks > self.target_ticks {
+        if ticks * 4 >= self.ticks - self.target_ticks {
+            i = (self.ticks - self.target_ticks) / 4;
+            self.ticks -= i * 4;
+        } else {
+            self.ticks -= ticks * 4;
             return ticks;
         }
+
         if bus.get_ly() == 153 {
             self.window_y_hit = false;
 

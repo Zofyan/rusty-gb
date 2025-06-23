@@ -15,15 +15,15 @@ pub trait MBC {
 pub struct MBC_DUMMY { }
 
 impl MBC for MBC_DUMMY { }
-pub struct MBC0 {
-    reader: Box<dyn ROM>,
+pub struct MBC0<R: ROM> {
+    reader: R,
 }
-impl MBC0 {
-    pub fn new(rom: Box<dyn ROM>) -> Self {
+impl<R: ROM> MBC0<R> {
+    pub fn new(rom: R) -> Self {
         MBC0 { reader: rom }
     }
 }
-impl MBC for MBC0 {
+impl<R: ROM> MBC for MBC0<R> {
     fn write(&mut self, address: u16, value: u8, memory: &mut Memory) {
         match address {
             ..=0x3FFF => {
@@ -40,25 +40,25 @@ impl MBC for MBC0 {
     }
 }
 
-pub struct MBC2 {
-    reader: Box<dyn ROM>,
+pub struct MBC2<R: ROM> {
+    reader: R,
 }
-impl MBC2 {
-    pub fn new(rom: Box<dyn ROM>) -> Self {
+impl<R: ROM> MBC2<R> {
+    pub fn new(rom: R) -> Self {
         MBC2 { reader: rom }
     }
 }
-pub struct MBC1 {
-    reader: Box<dyn ROM>,
+pub struct MBC1<R: ROM> {
+    reader: R,
     banking_mode: bool,
     rom_size: usize
 }
-impl MBC1 {
-    pub fn new(rom: Box<dyn ROM>, rom_size: usize) -> Self {
+impl<R: ROM> MBC1<R> {
+    pub fn new(rom: R, rom_size: usize) -> Self {
         MBC1 { banking_mode: false, reader: rom, rom_size }
     }
 }
-impl MBC for MBC1 {
+impl<R: ROM> MBC for MBC1<R> {
     fn write(&mut self, address: u16, value: u8, memory: &mut Memory) {
         match address {
             ..=0x1FFF => {
@@ -91,7 +91,7 @@ impl MBC for MBC1 {
         }
     }
 }
-impl MBC for MBC2 {
+impl<R: ROM> MBC for MBC2<R> {
     fn write(&mut self, address: u16, value: u8, memory: &mut Memory) {
         match address {
             ..=0x3FFF => {
@@ -112,19 +112,17 @@ impl MBC for MBC2 {
     }
 }
 
-pub struct MBC3 {
-    reader: BufReader<CloneableFile>,
-    rom: Box<dyn ROM>,
+pub struct MBC3<R: ROM> {
+    rom: R,
     rtc_registers: bool,
     rtc_register: u8
 }
-impl MBC3 {
-    pub fn new(reader: Option<CloneableFile>, rom: Box<dyn ROM>) -> Self {
-        let mut reader = BufReader::new(reader.unwrap());
-        MBC3 { rtc_registers: false, rtc_register: 0x08, reader, rom }
+impl<R: ROM> MBC3<R> {
+    pub fn new(rom: R) -> Self {
+        MBC3 { rtc_registers: false, rtc_register: 0x08, rom }
     }
 }
-impl MBC for MBC3 {
+impl<R: ROM> MBC for MBC3<R> {
     fn read(&self, address: u16, memory: &Memory) -> u8 {
         match address {
             0xA000..=0xBFFF => {

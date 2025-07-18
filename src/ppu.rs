@@ -5,9 +5,6 @@ use crate::window_fetcher::WindowFetcher;
 use bitfield::Bit;
 use std::alloc::System;
 use std::cmp::min;
-use std::intrinsics::write_bytes;
-use std::ops::Deref;
-use std::thread;
 
 const PPU_LINE_LENGTH: usize = 456;
 pub struct OAM {
@@ -15,12 +12,12 @@ pub struct OAM {
     y: u8,
     x: u8,
     tile_index: u8,
+    tile_index_last: u8,
     palette: bool,
     flip_x: bool,
     flip_y: bool,
     priority: bool,
-    data0: u8,
-    data1: u8,
+    data: [u8; 8],
 }
 
 impl OAM {
@@ -60,12 +57,12 @@ impl OAM {
             y: 0xDF,
             x: 0xDF,
             tile_index: 0,
+            tile_index_last: 1,
             palette: true,
             flip_x: true,
             flip_y: true,
             priority: true,
-            data0: 0,
-            data1: 0,
+            data: [0; 8],
         }
     }
 }
@@ -77,12 +74,12 @@ impl Clone for OAM {
             y: 0,
             x: 0,
             tile_index: 0,
+            tile_index_last: 1,
             palette: false,
             flip_x: false,
             flip_y: false,
             priority: false,
-            data0: 0,
-            data1: 0,
+            data: [0; 8],
         }
     }
 }
@@ -212,8 +209,7 @@ impl Ppu {
         self.oambuffer.clear();
         let mut count = 0u8;
         for i in 0..40 {
-            let mut oam = bus.oams[i];
-            if (bus.get_ly().wrapping_sub(oam.y.wrapping_sub(16)))
+            if (bus.get_ly().wrapping_sub(bus.oams[i].y.wrapping_sub(16)))
                 < (match bus.get_ldlc_obj_size() {
                     true => 16,
                     false => 8,
@@ -221,29 +217,41 @@ impl Ppu {
             {
                 //oam.x = oam.x.saturating_sub(8);
 
-                let mut offset = 0x8000;
-                let obj_size = bus.get_ldlc_obj_size();
-                if obj_size {
-                    if oam.flip_y {
-                        offset += ((oam.tile_index | 0x01) as u16) * 0x10;
+                if bus.oams[i].tile_index != bus.oams[i].tile_index_last {
+                    let mut offset = 0x8000;
+                    let obj_size = bus.get_ldlc_obj_size();
+                    if obj_size {
+                        if bus.oams[i].flip_y {
+                            offset += ((bus.oams[i].tile_index | 0x01) as u16) * 0x10;
+                        } else {
+                            offset += ((bus.oams[i].tile_index & 0xFE) as u16) * 0x10;
+                        }
                     } else {
-                        offset += ((oam.tile_index & 0xFE) as u16) * 0x10;
+                        offset += (bus.oams[i].tile_index as u16) * 0x10;
                     }
-                } else {
-                    offset += (oam.tile_index as u16) * 0x10;
+
+                    let mut addr = offset;
+                    if bus.oams[i].flip_y {
+                        addr += ((8 - (bus.get_ly() + 16 - bus.oams[i].y)) * 2) as u16;
+                    } else {
+                        addr += ((bus.get_ly() + 16 - bus.oams[i].y) * 2) as u16;
+                    }
+
+                    let tmp1 = bus.memory.get(addr);
+                    let tmp2 = bus.memory.get(addr + 1);
+                    bus.oams[i].data = [
+                        tmp1.bit(0) as u8 | ((tmp2.bit(0) as u8) << 1),
+                        tmp1.bit(1) as u8 | ((tmp2.bit(1) as u8) << 1),
+                        tmp1.bit(2) as u8 | ((tmp2.bit(2) as u8) << 1),
+                        tmp1.bit(3) as u8 | ((tmp2.bit(3) as u8) << 1),
+                        tmp1.bit(4) as u8 | ((tmp2.bit(4) as u8) << 1),
+                        tmp1.bit(5) as u8 | ((tmp2.bit(5) as u8) << 1),
+                        tmp1.bit(6) as u8 | ((tmp2.bit(6) as u8) << 1),
+                        tmp1.bit(7) as u8 | ((tmp2.bit(7) as u8) << 1),
+                    ];
+                    bus.oams[i].tile_index_last = bus.oams[i].tile_index;
                 }
-
-                let mut addr = offset;
-                if oam.flip_y {
-                    addr += ((8 - (bus.get_ly() + 16 - oam.y)) * 2) as u16;
-                } else {
-                    addr += ((bus.get_ly() + 16 - oam.y) * 2) as u16;
-                }
-
-                oam.data0 = bus.memory.get(addr);
-                oam.data1 = bus.memory.get(addr + 1);
-
-                self.oambuffer.push(oam);
+                self.oambuffer.push(bus.oams[i]);
 
                 self.target_ticks -= (11
                     - min(
@@ -276,10 +284,10 @@ impl Ppu {
                     diff
                 } else {
                     7 - diff
-                } as u32;
+                } as usize;
 
-                let mut sprite_pixel = oam.data0 >> shift & 0x1;
-                sprite_pixel |= (oam.data1 >> shift & 0x1) << 1;
+                let mut sprite_pixel = oam.data[shift];
+
                 if !oam.priority || transparent_bg {
                     if sprite_pixel != 0 {
                         output.write_pixel(
@@ -309,11 +317,6 @@ impl Ppu {
 
             if condition {
                 self.window_fetcher.tick(bus);
-            } else {
-                self.fetcher.tick(bus);
-            };
-
-            if condition {
                 while let Some(p) = self.window_fetcher.fifo_bg.pop() {
                     let transparent_bg = p == 0;
                     if !self.oam_tranfer(bus, transparent_bg, output) {
@@ -323,7 +326,10 @@ impl Ppu {
                     pixel = p;
                 }
             } else {
-                while let Some(p) = self.fetcher.fifo_bg.pop() {
+                self.fetcher.tick(bus);
+                while self.fetcher.fifo_bg_size > 0 {
+                    self.fetcher.fifo_bg_size -= 1;
+                    let p = self.fetcher.fifo_bg[self.fetcher.fifo_bg_size];
                     let transparent_bg = p == 0;
                     if !self.oam_tranfer(bus, transparent_bg, output) {
                         output.write_pixel(self.x as u16, bus.get_ly() as u16, p, false, 0);
@@ -352,7 +358,6 @@ impl Ppu {
             }
             self.set_ppu_state(bus, PpuState::HBlank);
         }
-
         i
     }
 

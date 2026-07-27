@@ -1,5 +1,5 @@
-use alloc::boxed::Box;
-use core::time::Duration;
+use std::fmt::Debug;
+use std::time::Duration;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
     dpi::LogicalSize,
@@ -12,7 +12,21 @@ use winit::event::WindowEvent;
 use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
 use winit::window::Window;
-use crate::output::Output;
+use crate::output::{Output, PX_COLOR, PX_PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH};
+
+/// RGBA for each `colour | palette` combination, pre-multiplied so the hot loop
+/// is a 4-byte copy instead of the float multiply this used to do per pixel.
+const RGBA: [[u8; 4]; 8] = [
+    [0, 0, 0, 255],
+    [25, 33, 25, 255],
+    [50, 66, 50, 255],
+    [75, 99, 75, 255],
+    // palette bit set: the ramp is reversed
+    [75, 99, 75, 255],
+    [50, 66, 50, 255],
+    [25, 33, 25, 255],
+    [0, 0, 0, 255],
+];
 
 pub struct LCD {
     size: u32,
@@ -21,23 +35,15 @@ pub struct LCD {
     event_loop: EventLoop<()>,
 }
 impl Output for LCD {
-    fn write_pixel(&mut self, x: u16, y: u16, color: u8, pallette: bool, _: u8) {
-        if x >= 160 || y >= 144 {
+    fn write_line(&mut self, y: u16, line: &[u8; SCREEN_WIDTH]) {
+        if y as usize >= SCREEN_HEIGHT {
             return;
         }
-        let colors = match pallette {
-            false => [0, 25, 50, 75],
-            true => [75, 50, 25, 0],
-        };
-        let c = colors[color as usize];
-
-        let x = x as usize;
-        let y = y as usize;
         let frame: &mut [u8] = self.pixels.frame_mut();
-        frame[x * 4 + y * 4 * 160 + 0] = c;
-        frame[x * 4 + y * 4 * 160 + 1] = (c as f64 * 1.33) as u8;
-        frame[x * 4 + y * 4 * 160 + 2] = c;
-        frame[x * 4 + y * 4 * 160 + 3] = 255;
+        let row = &mut frame[y as usize * SCREEN_WIDTH * 4..][..SCREEN_WIDTH * 4];
+        for (px, out) in line.iter().zip(row.chunks_exact_mut(4)) {
+            out.copy_from_slice(&RGBA[(px & (PX_COLOR | PX_PALETTE)) as usize]);
+        }
     }
 
     fn refresh(&mut self) -> bool {

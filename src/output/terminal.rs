@@ -1,31 +1,30 @@
-use alloc::string::{String, ToString};
-use alloc::vec;
-use alloc::vec::Vec;
 use once_cell::sync::OnceCell;
 
-use macroquad::prelude::*;
+use std::fmt::Debug;
+use std::io;
+use std::io::{stdout, Stdout, Write};
 use colored::{Colorize, CustomColor};
-use defmt::println;
 use ratatui::backend::CrosstermBackend;
-use usbd_serial::SerialPort;
-use crate::output::Output;
+use crate::output::{Output, PX_COLOR, PX_PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 static PALLETS: OnceCell<Vec<Vec<String>>> = OnceCell::new();
 pub struct Terminal {
     palettes: Vec<Vec<String>>,
-    term: ratatui::Terminal<CrosstermBackend<SerialPort<>>>,
+    term: ratatui::Terminal<CrosstermBackend<Stdout>>,
     pixels: Vec<Vec<Option<&'static String>>>,
     diagnostic_string: String,
 }
 
 impl Output for Terminal {
-    fn write_pixel(&mut self, x: u16, y: u16, color: u8, pallette: bool, debug: u8) {
-        let character = match pallette {
-            false => &PALLETS.get().unwrap()[0][color as usize],
-            true => &PALLETS.get().unwrap()[1][color as usize],
-        };
-        if x < 160 && y < 144 {
-            self.pixels[y as usize][x as usize] = Option::from(character);
+    fn write_line(&mut self, y: u16, line: &[u8; SCREEN_WIDTH]) {
+        if y as usize >= SCREEN_HEIGHT {
+            return;
+        }
+        let pallets = PALLETS.get().unwrap();
+        let row = &mut self.pixels[y as usize];
+        for (x, px) in line.iter().enumerate() {
+            let pallette = (px & PX_PALETTE != 0) as usize;
+            row[x] = Option::from(&pallets[pallette][(px & PX_COLOR) as usize]);
         }
     }
     fn refresh(&mut self) -> bool {

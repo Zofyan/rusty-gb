@@ -1,216 +1,156 @@
-use alloc::boxed::Box;
+use crate::platform;
 use bitfield::Bit;
-use bytesize::{kb, kib, ByteSize};
-use rp235x_hal as hal;
-use rp235x_hal::Timer;
-use rp235x_hal::timer::CopyableTimer0;
-use crate::bus::{ROM_0_END, ROM_N, ROM_N_END, ROM_N_SIZE};
+use bytesize::{ByteSize};
+use crate::bus::{ERAM, ERAM_END, ERAM_SIZE};
 use crate::memory::Memory;
-use crate::rom::ROM;
+use crate::rom::Rom;
 
-pub trait MBC {
-    fn write(&mut self, address: u16, value: u8, memory: &mut Memory) {}
-    fn read(&self, address: u16, memory: &Memory) -> u8 { memory.get(address) }
+/// Cartridge mapper.
+///
+/// This was a `Box<dyn MBC>` generic over the ROM reader. On Cortex-M33 that
+/// cost a vtable load out of flash plus an unpredictable `bx` on every read of
+/// 0x0000-0x7FFF, i.e. on every opcode fetch, because the core has no branch
+/// target buffer. As an enum the dispatch is a discriminant compare the
+/// compiler can inline through, and the emulator holds no boxed state.
+pub enum Mbc {
+    Dummy,
+    Mbc0,
+    Mbc1 { banking_mode: bool, rom_size: usize },
+    Mbc2,
+    Mbc3 { rtc_registers: bool, rtc_register: u8 },
 }
 
-pub struct MBC_DUMMY { }
-
-impl MBC for MBC_DUMMY { }
-pub struct MBC0 {
-    reader: Box<dyn ROM>,
-}
-impl MBC0 {
-    pub fn new(rom: Box<dyn ROM>) -> Self {
-        MBC0 { reader: rom }
-    }
-}
-impl MBC for MBC0 {
-    fn write(&mut self, address: u16, value: u8, memory: &mut Memory) {
-        match address {
-            ..=0x3FFF => {
-                memory.current_rom = (value as u16 & 0b11111) | memory.current_rom & 0b01100000;
-                if memory.current_rom & 0b11111 == 0 {
-                    memory.current_rom = 1;
-                }
-                memory.rom_address_cache = (memory.current_rom - 1) * ROM_N_SIZE;
-                self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.rom[ROM_N as usize..]);
-            },
-            _ => {
-
-            }
+impl Mbc {
+    /// Reads 0xA000-0xBFFF. Cartridge ROM does not come through here any more:
+    /// every mapper returned `memory.get(address)` for 0x0000-0x7FFF, so `Bus`
+    /// reads the `Rom` directly and skips the dispatch entirely.
+    #[inline]
+    pub fn read(&self, address: u16, memory: &Memory) -> u8 {
+        match self {
+            Mbc::Mbc3 { rtc_register, .. } if !memory.eram_enable => read_rtc(*rtc_register),
+            _ => memory.get(address),
         }
     }
-}
 
-pub struct MBC2 {
-    reader: Box<dyn ROM>,
-}
-impl MBC2 {
-    pub fn new(rom: Box<dyn ROM>) -> Self {
-        MBC2 { reader: rom }
-    }
-}
-pub struct MBC1 {
-    reader: Box<dyn ROM>,
-    banking_mode: bool
-}
-impl MBC1 {
-    pub fn new(rom: Box<dyn ROM>) -> Self {
-        MBC1 { banking_mode: false, reader: rom }
-    }
-}
-impl MBC for MBC1 {
-    fn write(&mut self, address: u16, value: u8, memory: &mut Memory) {
-        match address {
-            ..=0x1FFF => {
-                memory.eram_enable = 0x0A == (value & 0x0F)
-            },
-            0x2000..=0x3FFF => {
-                memory.current_rom = (value as u16 & 0b11111) | memory.current_rom & 0b01100000;
-                if memory.current_rom & 0b11111 == 0 {
-                    memory.current_rom = 1;
-                }
-                memory.rom_address_cache = (memory.current_rom - 1) * ROM_N_SIZE;
-                self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.rom[ROM_N as usize..]);
-            },
-            0x4000..=0x5FFF => {
-                if memory.eram.len() >= ByteSize::kib(16).as_u64() as usize {
-                    memory.current_eram = (value & 0b11) as u16;
-                } else if memory.rom.len() >= ByteSize::mib(1).as_u64() as usize {
-                    memory.current_rom = (value as u16 & 0b01100000) | memory.current_rom & 0b11111;
-                }
-                memory.rom_address_cache = (memory.current_rom - 1) * ROM_N_SIZE;
-                self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.rom[ROM_N as usize..]);
-            },
-            0x6000..=0x7FFF => {
-                self.banking_mode = value & 0x1 == 1;
-            },
-            _ => {
-                memory.set(address, value);
-            }
-        }
-    }
-}
-impl MBC for MBC2 {
-    fn write(&mut self, address: u16, value: u8, memory: &mut Memory) {
-        match address {
-            ..=0x3FFF => {
-                if address.bit(8) == false {
-                    memory.eram_enable = 0x0A == (value & 0x0F)
-                } else {
-                    memory.current_rom = (value & 0b1111) as u16;
-                    if memory.current_rom & 0b1111 == 0 {
+    /// Bank switching is rare next to reads, and inlining this whole match into
+    /// `Bus::set` pushed `Bus::get`/`Bus::set` over the inline threshold, which
+    /// cost far more than the call ever will.
+    #[inline(never)]
+    pub fn write(&mut self, address: u16, value: u8, memory: &mut Memory, rom: &mut Rom) {
+        match self {
+            Mbc::Dummy => {}
+            Mbc::Mbc0 => match address {
+                ..=0x3FFF => {
+                    let previous = memory.current_rom;
+                    memory.current_rom = ((value as u16 & 0b11111)
+                        | memory.current_rom as u16 & 0b01100000)
+                        as usize;
+                    if memory.current_rom & 0b11111 == 0 {
                         memory.current_rom = 1;
                     }
-                    memory.rom_address_cache = (memory.current_rom - 1) * ROM_N_SIZE;
-                    self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.rom[ROM_N as usize..]);
+                    if previous != memory.current_rom {
+                        rom.select(memory.current_rom);
+                    }
                 }
+                _ => {}
             },
-            _ => {
-                panic!("Not implemented for MBC1!")
-            }
-        }
-    }
-}
-
-pub struct MBC3 {
-    reader: Box<dyn ROM>,
-    rtc_registers: bool,
-    rtc_register: u8,
-    timer: Timer<CopyableTimer0>
-}
-impl MBC3 {
-    pub fn new(rom: Box<dyn ROM>) -> Self {
-
-        let mut pac = hal::pac::Peripherals::take().unwrap();// Set up the watchdog driver - needed by the clock setup code
-        let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
-
-        // Configure the clocks
-        let clocks = hal::clocks::init_clocks_and_plls(
-            crate::XTAL_FREQ_HZ,
-            pac.XOSC,
-            pac.CLOCKS,
-            pac.PLL_SYS,
-            pac.PLL_USB,
-            &mut pac.RESETS,
-            &mut watchdog,
-        )
-            .unwrap();
-        let mut timer = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
-        MBC3 { rtc_registers: false, rtc_register: 0x08, reader: rom, timer }
-    }
-}
-impl MBC for MBC3 {
-    fn read(&self, address: u16, memory: &Memory) -> u8 {
-        match address {
-            0xA000..=0xBFFF => {
-                if memory.eram_enable {
-                    memory.get(address)
-                } else {
-                    match self.rtc_register { 
-                        0x08 => {
-                            (self.timer.get_counter().duration_since_epoch().to_secs() % 60) as u8
-                        }
-                        0x09 => {
-                            ((self.timer.get_counter().duration_since_epoch().to_secs() / 60) % 60) as u8
-                        }
-                        0x0A => {
-                            ((self.timer.get_counter().duration_since_epoch().to_secs() / 3600) % 24) as u8
-                        }
-                        0x0B => {
-                            (((self.timer.get_counter().duration_since_epoch().to_secs() / 3600 / 24) % 512) & 0xFF) as u8
-                        }
-                        0x0C => {
-                            (((self.timer.get_counter().duration_since_epoch().to_secs() / 3600 / 24) % 512) & 0x100) as u8
-                        }
-                        _ => {
-                            panic!("no {:#02x}", self.rtc_register)
+            Mbc::Mbc1 { banking_mode, rom_size } => match address {
+                ..=0x1FFF => memory.eram_enable = 0x0A == (value & 0x0F),
+                0x2000..=0x3FFF => {
+                    let previous = memory.current_rom;
+                    memory.current_rom = ((value as u16 & 0b11111)
+                        | memory.current_rom as u16 & 0b01100000)
+                        as usize;
+                    if memory.current_rom & 0b11111 == 0 {
+                        memory.current_rom = 1;
+                    }
+                    if previous != memory.current_rom {
+                        rom.select(memory.current_rom);
+                    }
+                }
+                0x4000..=0x5FFF => {
+                    if memory.eram.len() >= ByteSize::kib(16).as_u64() as usize {
+                        memory.swap_eram((value & 0b11) as usize);
+                    } else if *rom_size >= ByteSize::mib(1).as_u64() as usize {
+                        let previous = memory.current_rom;
+                        memory.current_rom = ((value as u16 & 0b01100000)
+                            | memory.current_rom as u16 & 0b11111)
+                            as usize;
+                        if previous != memory.current_rom {
+                            rom.select(memory.current_rom);
                         }
                     }
                 }
-
-            }
-            _ => {
-                memory.get(address)
-            }
+                0x6000..=0x7FFF => *banking_mode = value & 0x1 == 1,
+                _ => memory.set(address, value),
+            },
+            Mbc::Mbc2 => match address {
+                ..=0x3FFF => {
+                    if address.bit(8) == false {
+                        memory.eram_enable = 0x0A == (value & 0x0F)
+                    } else {
+                        let previous = memory.current_rom;
+                        memory.current_rom = (value & 0b1111) as usize;
+                        if memory.current_rom & 0b1111 == 0 {
+                            memory.current_rom = 1;
+                        }
+                        if previous != memory.current_rom {
+                            rom.select(memory.current_rom);
+                        }
+                    }
+                }
+                _ => panic!("Not implemented for MBC1!"),
+            },
+            Mbc::Mbc3 { rtc_registers, rtc_register } => match address {
+                ..=0x1FFF => {
+                    memory.eram_enable = 0x0A == (value & 0x0F);
+                    *rtc_registers = 0x0A == (value & 0x0F)
+                }
+                0x2000..=0x3FFF => {
+                    let previous = memory.current_rom;
+                    memory.current_rom = (value & 0b1111111) as usize;
+                    if memory.current_rom & 0b1111111 == 0 {
+                        memory.current_rom = 1;
+                    }
+                    // Games re-select the bank they already have loaded
+                    // constantly; skipping those avoids paging it back in.
+                    if previous != memory.current_rom {
+                        rom.select(memory.current_rom);
+                    }
+                }
+                0x4000..=0x5FFF => {
+                    if value <= 0x07 {
+                        memory.swap_eram((value & 0b11) as usize);
+                        memory.eram_enable = true;
+                    } else if value <= 0x0c && value >= 0x08 {
+                        memory.eram_enable = false;
+                        *rtc_register = value
+                    }
+                }
+                0x6000..=0x7FFF => {}
+                0xA000..=0xBFFF => {
+                    if memory.eram_enable {
+                        memory.set(address, value)
+                    }
+                }
+                _ => panic!("Not implemented for MBC3! {:#04x}", address),
+            },
         }
     }
-    fn write(&mut self, address: u16, value: u8, memory: &mut Memory) {
-        match address {
-            ..=0x1FFF => {
-                memory.eram_enable = 0x0A == (value & 0x0F);
-                self.rtc_registers = 0x0A == (value & 0x0F)
-            },
-            0x2000..=0x3FFF => {
-                memory.current_rom = (value & 0b1111111) as u16;
-                if memory.current_rom & 0b1111111 == 0 {
-                    memory.current_rom = 1;
-                }
-                memory.rom_address_cache = memory.current_rom * ROM_N_SIZE;
-                self.reader.read(memory.current_rom * ROM_N_SIZE, &mut memory.rom[ROM_N as usize..]);
-            },
-            0x4000..=0x5FFF => {
-                if value <= 0x03 {
-                    memory.current_eram = (value & 0b11) as u16;
-                    memory.eram_enable = true;
-                } else if value <= 0x0c && value >= 0x08 {
-                    memory.eram_enable = false;
-                    self.rtc_register = value
-                }
-            },
-            0x6000..=0x7FFF => {
+}
 
-            },
-            0xA000..=0xBFFF => {
-                if memory.eram_enable {
-                    memory.set(address, value)
-                } else {
-
-                }
-            }
-            _ => {
-                panic!("Not implemented for MBC3! {:#04x}", address)
-            }
-        }
+/// Out of line and cold: letting it inline into `Mbc::read` would in turn stop
+/// `Bus::get` from inlining into its callers.
+#[cold]
+#[inline(never)]
+fn read_rtc(rtc_register: u8) -> u8 {
+    let secs = platform::secs();
+    match rtc_register {
+        0x08 => (secs % 60) as u8,
+        0x09 => ((secs / 60) % 60) as u8,
+        0x0A => ((secs / 3600) % 24) as u8,
+        0x0B => (((secs / 3600 / 24) % 512) & 0xFF) as u8,
+        0x0C => (((secs / 3600 / 24) % 512) & 0x100) as u8,
+        _ => panic!("no {:#02x}", rtc_register),
     }
 }

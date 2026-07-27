@@ -22,7 +22,7 @@ impl Cpu {
     // Constructor for Cpu
     pub fn new() -> Cpu {
         let mut cpu = Cpu { a: Register { value: 0 }, b: Register { value: 0 }, c: Register { value: 0 }, d: Register { value: 0 }, e: Register { value: 0 }, f: Register { value: 0 }, h: Register { value: 0 }, l: Register { value: 0 }, pc: 0, sp: 0, counter: 0, ime: false, halted: false };
-        cpu.set_sp(crate::bus::HRAM_END);
+        cpu.set_sp(crate::bus::HRAM_END as u16);
         cpu.set_pc(0x0100);
         cpu.set_bc(0x0013);
         cpu.set_af(0x01B0);
@@ -31,8 +31,10 @@ impl Cpu {
         cpu
     }
 
+    /// Gameboy-Doctor style trace. defmt needs the argument type in the format
+    /// string, so the `{:02X}` of the host build becomes `{=u8:02X}` here.
     fn log(&self, bus: &Bus) {
-        println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X}) LY: {:02X}",
+        println!("A: {=u8:02X} F: {=u8:02X} B: {=u8:02X} C: {=u8:02X} D: {=u8:02X} E: {=u8:02X} H: {=u8:02X} L: {=u8:02X} SP: {=u16:04X} PC: 00:{=u16:04X} ({=u8:02X} {=u8:02X} {=u8:02X} {=u8:02X}) LY: {=u8:02X}",
                  self.a.get(),
                  self.f.get(),
                  self.b.get(),
@@ -50,11 +52,12 @@ impl Cpu {
                  bus.get(0xFF44)
         )
     }
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
     pub fn step(&mut self, mut bus: &mut Bus, log: bool) -> usize {
         //self.log(bus);
 
         if self.halted{
-            if bus.get(INT_ENABLE) & bus.get(INT_REQUEST) > 0{
+            if bus.get(INT_ENABLE as u16) & bus.get(INT_REQUEST as u16) > 0{
                 self.halted = false;
             } else{
                 return 1;
@@ -63,22 +66,58 @@ impl Cpu {
         let opcode = bus.get(self.get_pc());
         let inst = (opcode >> 4, opcode & 0xF);
         let cycles = self.counter;
-        if !self.load(inst, &mut bus) &&
-            !self.alu(inst, &mut bus) &&
-            !self.load16(inst, &mut bus) &&
-            !self.alu16(inst, &mut bus) &&
-            !self.jump(inst, &mut bus) &&
-            !self.pop(inst, &mut bus) &&
-            !self.misc(inst, &mut bus) &&
-            !self.rotate(inst, &mut bus) &&
-            !self.reset(inst, &mut bus) &&
-            !self.call(inst, &mut bus) &&
-            !self.ret(inst, &mut bus) &&
-            !self.prefix(inst, &mut bus) &&
-            !self.push(inst, &mut bus) {
-            panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc())
-        }
+        self.dispatch(opcode, inst, &mut bus);
         self.counter - cycles
+    }
+
+    /// Routes an opcode straight to its handler.
+    ///
+    /// This used to try all thirteen handlers in sequence until one claimed the
+    /// opcode, so common instructions paid for every failed match before theirs:
+    /// PUSH was last of thirteen, RET eleventh, CALL tenth. One match over the
+    /// opcode lets the compiler emit a jump table instead, which costs no RAM.
+    ///
+    /// The arms below are not hand-derived: `dispatch_matches_handler_chain`
+    /// checks them against the original chain for every opcode and state.
+    #[inline]
+    fn dispatch(&mut self, opcode: u8, inst: (u8, u8), bus: &mut Bus) {
+        let handled = match opcode {
+            0x02 | 0x06 | 0x0A | 0x0E | 0x12 | 0x16 | 0x1A | 0x1E | 0x22 | 0x26 | 0x2A | 0x2E
+            | 0x32 | 0x36 | 0x3A | 0x3E | 0x40..=0x75 | 0x77..=0x7F | 0xE0 | 0xE2 | 0xEA
+            | 0xF0 | 0xF2 | 0xFA => self.load(inst, bus),
+
+            0x04 | 0x05 | 0x0C | 0x0D | 0x14 | 0x15 | 0x1C | 0x1D | 0x24 | 0x25 | 0x2C | 0x2D
+            | 0x34 | 0x35 | 0x3C | 0x3D | 0x80..=0xBF | 0xC6 | 0xCE | 0xD6 | 0xDE | 0xE6
+            | 0xEE | 0xF6 | 0xFE => self.alu(inst, bus),
+
+            0x01 | 0x08 | 0x11 | 0x21 | 0x31 | 0xF9 => self.load16(inst, bus),
+
+            0x03 | 0x09 | 0x0B | 0x13 | 0x19 | 0x1B | 0x23 | 0x29 | 0x2B | 0x33 | 0x39
+            | 0x3B => self.alu16(inst, bus),
+
+            0x18 | 0x20 | 0x28 | 0x30 | 0x38 | 0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA
+            | 0xE9 => self.jump(inst, bus),
+
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop(inst, bus),
+
+            0x00 | 0x10 | 0x27 | 0x2F | 0x37 | 0x3F | 0x76 | 0xD9 | 0xE8 | 0xF3
+            | 0xF8 | 0xFB => self.misc(inst, bus),
+
+            0x07 | 0x0F | 0x17 | 0x1F => self.rotate(inst, bus),
+
+            0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.reset(inst, bus),
+
+            0xC4 | 0xCC | 0xCD | 0xD4 | 0xDC => self.call(inst, bus),
+
+            0xC0 | 0xC8 | 0xC9 | 0xD0 | 0xD8 => self.ret(inst, bus),
+
+            0xCB => self.prefix(inst, bus),
+
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push(inst, bus),
+
+            _ => panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc()),
+        };
+        debug_assert!(handled, "handler declined opcode {:#04x}", opcode);
     }
 
     fn _cycles(&mut self, _count: usize) {

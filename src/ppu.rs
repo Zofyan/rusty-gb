@@ -1,12 +1,10 @@
-use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::cmp::min;
 use crate::bus::{Bus, OAM};
-use crate::fetcher::Fetcher;
+use crate::fetcher::{decode_row, flip_row, Fetcher};
 use crate::output::Output;
+use crate::output::{PX_COLOR, PX_PALETTE, PX_SPRITE, SCREEN_WIDTH};
 use crate::window_fetcher::WindowFetcher;
 use bitfield::Bit;
+use core::cmp::min;
 
 const PPU_LINE_LENGTH: usize = 456;
 pub struct OAM {
@@ -14,30 +12,45 @@ pub struct OAM {
     y: u8,
     x: u8,
     tile_index: u8,
+    tile_index_last: u8,
     palette: bool,
     flip_x: bool,
     flip_y: bool,
     priority: bool,
-    data0: u8,
-    data1: u8,
+    /// This row of the sprite, 2 bits per pixel, leftmost in the high bits.
+    data: u16,
 }
 
 impl OAM {
     pub fn new(index: usize, bus: &Bus) -> OAM {
-        let address = OAM + (index as u16) * 4;
+        let address = OAM as u16 + (index as u16) * 4;
         let mut oam = OAM::empty();
-        oam.y = bus._get(address);
+        oam.y = bus.memory.get(address);
         oam.address = address;
         oam
     }
     pub fn init(&mut self, bus: &Bus) {
-        self.x = bus._get(self.address + 1);
-        self.tile_index = bus._get(self.address + 2);
-        let tmp = bus._get(self.address + 3);
+        self.x = bus.memory.get(self.address + 1);
+        self.tile_index = bus.memory.get(self.address + 2);
+        let tmp = bus.memory.get(self.address + 3);
         self.palette = tmp.bit(4);
         self.flip_x = tmp.bit(5);
         self.flip_y = tmp.bit(6);
         self.priority = tmp.bit(7);
+    }
+    pub fn set(&mut self, val: u8, index: u8) {
+        match index {
+            0 => self.y = val,
+            1 => self.x = val,
+            2 => self.tile_index = val,
+            3 => {
+                self.palette = val.bit(4);
+                self.flip_x = val.bit(5);
+                self.flip_y = val.bit(6);
+                self.priority = val.bit(7);
+            },
+            _ => { panic!("no oam") }
+        }
     }
     pub fn empty() -> OAM {
         OAM {
@@ -45,12 +58,12 @@ impl OAM {
             y: 0xDF,
             x: 0xDF,
             tile_index: 0,
+            tile_index_last: 1,
             palette: true,
             flip_x: true,
             flip_y: true,
             priority: true,
-            data0: 0,
-            data1: 0,
+            data: 0,
         }
     }
 }
@@ -62,12 +75,12 @@ impl Clone for OAM {
             y: 0,
             x: 0,
             tile_index: 0,
+            tile_index_last: 1,
             palette: false,
             flip_x: false,
             flip_y: false,
             priority: false,
-            data0: 0,
-            data1: 0,
+            data: 0,
         }
     }
 }
@@ -82,10 +95,28 @@ pub enum PpuState {
     PixelTransfer = 3,
 }
 
+/// Screen x range covered by the sprite line buffer. Sprite x is offset by 8
+/// (an OAM x of 0 is 8 pixels left of the screen), so index = screen_x + 8
+/// and the widest visible sprite starts at index 167.
+const SPRITE_LINE_LEN: usize = 176;
+
+/// Packed sprite pixel: bits 0-1 colour (0 = no sprite here), bit 2 palette,
+/// bit 3 bg-over-obj priority.
+const SPR_COLOR: u8 = 0b11;
+const SPR_PALETTE: u8 = 0b100;
+const SPR_PRIORITY: u8 = 0b1000;
+
 pub struct Ppu {
     pub ticks: usize,
     pub state: PpuState,
-    pub oambuffer: Vec<OAM>,
+    /// Indices into `bus.oams` of the sprites on this line, x-ascending.
+    oambuffer: [u8; 10],
+    oambuffer_len: usize,
+    /// The line's sprites rasterised once per scanline, so pixel transfer is a
+    /// single indexed load instead of a scan over up to 10 sprites.
+    sprite_line: [u8; SPRITE_LINE_LEN],
+    /// The composited scanline, handed to the output once the line completes.
+    line: [u8; SCREEN_WIDTH],
     x: i16,
     x_shift: i16,
     y: i16,
@@ -102,7 +133,10 @@ impl Ppu {
             ticks: PPU_LINE_LENGTH,
             target_ticks: PPU_LINE_LENGTH - 80,
             state: PpuState::OAMFetch,
-            oambuffer: Vec::with_capacity(10),
+            oambuffer: [0; 10],
+            oambuffer_len: 0,
+            sprite_line: [0; SPRITE_LINE_LEN],
+            line: [0; SCREEN_WIDTH],
             x: 0,
             x_shift: 0,
             y: 0,
@@ -132,21 +166,25 @@ impl Ppu {
     }
 
     fn dma_tranfer(&self, bus: &mut Bus) {
-        bus._set((bus.dma_address & 0xFF) + 0xFE00, bus._get(bus.dma_address));
-        if bus.dma_address & 0xFF == 0x9F {
+        let truncated_dma_address = bus.dma_address & 0xFF;
+        let index = truncated_dma_address as usize / 4;
+        // Via `bus`, not `memory`: the DMA source register can name a ROM page,
+        // which no longer has a copy in RAM.
+        let byte = bus.get(bus.dma_address);
+        bus.oams[index].set(byte, (bus.dma_address & 0b11) as u8);
+        if truncated_dma_address == 0x9F {
             bus.dma_address = 0;
         } else {
             bus.dma_address += 1;
         }
     }
 
-    pub fn tick(&mut self, bus: &mut Bus, output: &mut Box<dyn Output>, mut ticks: usize) {
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
+    pub fn tick<O: Output>(&mut self, bus: &mut Bus, output: &mut O, mut ticks: usize) {
+        while bus.dma_address != 0 {
+            self.dma_tranfer(bus);
+        }
         while ticks > 0 {
-            if bus.dma_address != 0 {
-                for _ in 0..4 {
-                    self.dma_tranfer(bus);
-                }
-            }
             let consumed_ticks = match self.state {
                 PpuState::OAMFetch => {
                     self.oam_fetch(bus, ticks)
@@ -165,18 +203,17 @@ impl Ppu {
         }
     }
 
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
     fn oam_fetch(&mut self, bus: &mut Bus, ticks: usize) -> usize {
         let mut i = 0;
-        while i < ticks {
-            self.ticks -= 4;
-            i += 1;
-            if self.ticks <= self.target_ticks {
-                break;
-            }
-        }
-        if i == ticks && self.ticks > self.target_ticks {
+        if ticks * 4 >= self.ticks - self.target_ticks {
+            i = (self.ticks - self.target_ticks) / 4;
+            self.ticks -= i * 4;
+        } else {
+            self.ticks -= ticks * 4;
             return ticks;
         }
+
         self.window_y_hit |= bus.get_wy() == bus.get_ly();
         let tile_line = bus.get_ly() % 8;
 
@@ -189,106 +226,140 @@ impl Ppu {
         tile_map_row_addr = match bus.get_ldlc_window_tilemap() {
             true => 0x9C00,
             false => 0x9800,
-        } + ((bus.get_ly() - bus._get(0xFF4A)) / 8) as u16 * 32;
+        } + ((bus.get_ly() - bus.memory.get(0xFF4A)) / 8) as u16 * 32;
         self.window_fetcher.reset(tile_map_row_addr, tile_line, bus);
 
         self.x_shift = (bus.get_scx() % 8) as i16;
         self.y_shift = (bus.get_scy() % 8) as i16;
         self.x = -self.x_shift;
+        self.line.fill(0);
 
-        self.oambuffer.clear();
-        let mut count = 0u8;
+        self.oambuffer_len = 0;
         for i in 0..40 {
-            let mut oam = OAM::new(i, bus);
-            if (bus.get_ly().wrapping_sub(oam.y.wrapping_sub(16)))
+            if (bus.get_ly().wrapping_sub(bus.oams[i].y.wrapping_sub(16)))
                 < (match bus.get_ldlc_obj_size() {
                     true => 16,
                     false => 8,
                 })
             {
-                oam.init(bus);
                 //oam.x = oam.x.saturating_sub(8);
 
-                let mut offset = 0x8000;
-                let obj_size = bus.get_ldlc_obj_size();
-                if obj_size {
-                    if oam.flip_y {
-                        offset += ((oam.tile_index | 0x01) as u16) * 0x10;
+                if bus.oams[i].tile_index != bus.oams[i].tile_index_last {
+                    let mut offset = 0x8000;
+                    let obj_size = bus.get_ldlc_obj_size();
+                    if obj_size {
+                        if bus.oams[i].flip_y {
+                            offset += ((bus.oams[i].tile_index | 0x01) as u16) * 0x10;
+                        } else {
+                            offset += ((bus.oams[i].tile_index & 0xFE) as u16) * 0x10;
+                        }
                     } else {
-                        offset += ((oam.tile_index & 0xFE) as u16) * 0x10;
+                        offset += (bus.oams[i].tile_index as u16) * 0x10;
                     }
-                } else {
-                    offset += (oam.tile_index as u16) * 0x10;
+
+                    let mut addr = offset;
+                    if bus.oams[i].flip_y {
+                        addr += ((8 - (bus.get_ly() + 16 - bus.oams[i].y)) * 2) as u16;
+                    } else {
+                        addr += ((bus.get_ly() + 16 - bus.oams[i].y) * 2) as u16;
+                    }
+
+                    let tmp1 = bus.memory.get(addr);
+                    let tmp2 = bus.memory.get(addr + 1);
+                    bus.oams[i].data = decode_row(tmp1, tmp2);
+                    bus.oams[i].tile_index_last = bus.oams[i].tile_index;
                 }
+                self.oambuffer[self.oambuffer_len] = i as u8;
+                self.oambuffer_len += 1;
 
-                let mut addr = offset;
-                if oam.flip_y {
-                    addr += ((8 - (bus.get_ly() + 16 - oam.y)) * 2) as u16;
-                } else {
-                    addr += ((bus.get_ly() + 16 - oam.y) * 2) as u16;
-                }
+                // This was `11 - min(5, (self.x + scx) % 8)`, but `self.x` is set
+                // to `-(scx % 8)` above and not touched in this loop, so the sum
+                // is always a multiple of 8 and the penalty is always 11. The old
+                // form cost 24 Thumb instructions (signed remainder needs a bias
+                // correction, and `checked_add_unsigned().unwrap()` emits a panic
+                // branch) to compute a constant.
+                //
+                // NB: the variable penalty this was reaching for is therefore not
+                // implemented -- see the note in the commit message.
+                debug_assert_eq!(self.x, -((bus.get_scx() % 8) as i16));
+                self.target_ticks -= 11;
 
-                oam.data0 = bus._get(addr);
-                oam.data1 = bus._get(addr + 1);
-
-                self.oambuffer.push(oam);
-
-                self.target_ticks -= (11
-                    - min(
-                        5,
-                        (self.x.checked_add_unsigned(bus.get_scx() as u16).unwrap()) % 8,
-                    )) as usize;
-
-                count += 1;
-                if count >= 10 {
+                if self.oambuffer_len >= 10 {
                     break;
                 }
             }
         }
 
-        self.oambuffer.sort_by_key(|oam| oam.x);
+        self.rasterise_sprites(bus);
 
         self.set_ppu_state(bus, PpuState::PixelTransfer);
         i
     }
 
-    fn oam_tranfer(&mut self, bus: &mut Bus, transparent_bg: bool, mut output: &mut Box<dyn Output>) -> bool {
+    /// Draws this line's sprites into `sprite_line` once, so pixel transfer costs
+    /// one indexed load per pixel instead of a scan over the whole OAM buffer.
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
+    fn rasterise_sprites(&mut self, bus: &Bus) {
+        self.sprite_line.fill(0);
         if !bus.get_ldlc_obj_enable() {
-            return false;
+            return;
         }
-        let mut final_pixel = (0, false);
-        for oam in self.oambuffer.iter().rev() {
-            if self.x + 8 - (oam.x as i16) < 8 && self.x + 8 - (oam.x as i16) >= 0 {
-                let mut bit_shift = 7 - self.x.saturating_sub_unsigned(oam.x as u16);
-                if oam.flip_x {
-                    bit_shift = self.x.wrapping_sub_unsigned(oam.x as u16);
-                }
 
-                let mut sprite_pixel = oam.data0.overflowing_shr(bit_shift as u32).0 & 0x1;
-                sprite_pixel |= (oam.data1.overflowing_shr(bit_shift as u32).0 & 0x1) << 1;
-                if !oam.priority || transparent_bg {
-                    if sprite_pixel != 0 {
-                        final_pixel.0 = sprite_pixel;
-                        final_pixel.1 = oam.palette;
-                        output.write_pixel(
-                            self.x as u16,
-                            bus.get_ly() as u16,
-                            final_pixel.0,
-                            final_pixel.1,
-                            2,
-                        );
-                        return true
-                    }
+        // Stable insertion sort by x: on DMG the lower x wins, and equal x is
+        // broken by the lower OAM index, which is the order we collected them in.
+        for i in 1..self.oambuffer_len {
+            let idx = self.oambuffer[i];
+            let x = bus.oams[idx as usize].x;
+            let mut j = i;
+            while j > 0 && bus.oams[self.oambuffer[j - 1] as usize].x > x {
+                self.oambuffer[j] = self.oambuffer[j - 1];
+                j -= 1;
+            }
+            self.oambuffer[j] = idx;
+        }
+
+        // Draw x-descending so higher-priority (lower x) sprites overwrite.
+        for i in (0..self.oambuffer_len).rev() {
+            let oam = &bus.oams[self.oambuffer[i] as usize];
+            let packed = ((oam.palette as u8) << 2) | ((oam.priority as u8) << 3);
+            // Resolve the flip once per sprite rather than branching per pixel.
+            let mut row = if oam.flip_x { flip_row(oam.data) } else { oam.data };
+            for diff in 0..8usize {
+                let sx = oam.x as usize + diff;
+                if sx >= SPRITE_LINE_LEN {
+                    break;
+                }
+                let p = (row >> 14) as u8;
+                row <<= 2;
+                if p != 0 {
+                    self.sprite_line[sx] = p | packed;
                 }
             }
-
         }
-        false
     }
 
-    fn pixel_tranfer(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>, ticks: usize) -> usize {
+    /// Blends the background pixel `bg` with this line's sprite buffer and
+    /// stores the result at the current x, then advances x.
+    #[inline]
+    fn compose(&mut self, bg: u8) {
+        let x = self.x;
+        self.x += 1;
+        if x < 0 || x as usize >= SCREEN_WIDTH {
+            return;
+        }
+
+        // Sprite x is offset by 8: OAM x of 0 sits 8 pixels left of the screen.
+        let spr = self.sprite_line[(x + 8) as usize];
+        self.line[x as usize] = if spr & SPR_COLOR != 0 && (spr & SPR_PRIORITY == 0 || bg == 0) {
+            (spr & (PX_COLOR | PX_PALETTE)) | PX_SPRITE
+        } else {
+            bg & PX_COLOR
+        };
+    }
+
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
+    fn pixel_tranfer<O: Output>(&mut self, bus: &mut Bus, mut output: &mut O, ticks: usize) -> usize {
         let mut pixel = 255;
-        let mut debug = 0;
         let condition = self.window_y_hit && bus.get_ldlc_window_enable() && self.x + 7 >= bus.get_wx() as i16;
 
         let mut i = 0;
@@ -298,37 +369,41 @@ impl Ppu {
 
             if condition {
                 self.window_fetcher.tick(bus);
-                debug = 1;
-
-                while !self.window_fetcher.fifo_bg.is_empty() {
-                    pixel = self.window_fetcher.fifo_bg.pop().unwrap().to_owned();
-                    let transparent_bg = pixel == 0;
-                    if !self.oam_tranfer(bus, transparent_bg, output) {
-                        output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
-                    }
-                    self.x += 1;
+                while self.window_fetcher.fifo_bg_size > 0 {
+                    self.window_fetcher.fifo_bg_size -= 1;
+                    // Leftmost pixel is in the high bits.
+                    let p = (self.window_fetcher.fifo_bg >> 14) as u8;
+                    self.window_fetcher.fifo_bg <<= 2;
+                    self.compose(p);
+                    pixel = p;
                 }
             } else {
                 self.fetcher.tick(bus);
-                while !self.fetcher.fifo_bg.is_empty() {
-                    pixel = self.fetcher.fifo_bg.pop().unwrap().to_owned();
-                    let transparent_bg = pixel == 0;
-                    if !self.oam_tranfer(bus, transparent_bg, output){
-                        output.write_pixel(self.x as u16, bus.get_ly() as u16, pixel, false, debug);
-                    }
-                    self.x += 1;
+                while self.fetcher.fifo_bg_size > 0 {
+                    self.fetcher.fifo_bg_size -= 1;
+                    let p = (self.fetcher.fifo_bg >> 14) as u8;
+                    self.fetcher.fifo_bg <<= 2;
+                    self.compose(p);
+                    pixel = p;
                 }
+            };
+
+            if pixel != 255 {
+                self.target_ticks = self.target_ticks.saturating_sub(4);
             }
-            if pixel != 255 { self.target_ticks = self.target_ticks.saturating_sub(4) }
+
             if self.ticks <= self.target_ticks + 1 {
                 break;
             }
         }
+
         if i == ticks && self.ticks > self.target_ticks {
             return ticks;
         }
 
         if self.ticks <= self.target_ticks + 1 {
+            // The line is complete: hand it over in one call.
+            output.write_line(bus.get_ly() as u16, &self.line);
             if bus.get_ldlc_stat_hblank_stat_int() {
                 bus.set_int_request_lcd(true);
             }
@@ -339,16 +414,14 @@ impl Ppu {
 
     fn hblank(&mut self, bus: &mut Bus, ticks: usize) ->usize{
         let mut i = 0;
-        while i < ticks {
-            self.ticks = self.ticks.saturating_sub(4);
-            i += 1;
-            if self.ticks <= self.target_ticks {
-                break;
-            }
-        }
-        if i == ticks && self.ticks > self.target_ticks {
+        if ticks * 4 >= self.ticks - self.target_ticks {
+            i = (self.ticks - self.target_ticks) / 4;
+            self.ticks -= i * 4;
+        } else {
+            self.ticks -= ticks * 4;
             return ticks;
         }
+
         bus.set_ly(bus.get_ly() + 1);
 
         if bus.get_ly() == bus.get_lyc() {
@@ -372,18 +445,16 @@ impl Ppu {
         i
     }
 
-    fn vblank(&mut self, bus: &mut Bus, mut output: &mut Box<dyn Output>, ticks: usize) -> usize {
+    fn vblank<O: Output>(&mut self, bus: &mut Bus, _: &mut O, ticks: usize) -> usize {
         let mut i = 0;
-        while i < ticks {
-            self.ticks = self.ticks.saturating_sub(4);
-            i += 1;
-            if self.ticks <= self.target_ticks {
-                break;
-            }
-        }
-        if i == ticks && self.ticks > self.target_ticks {
+        if ticks * 4 >= self.ticks - self.target_ticks {
+            i = (self.ticks - self.target_ticks) / 4;
+            self.ticks -= i * 4;
+        } else {
+            self.ticks -= ticks * 4;
             return ticks;
         }
+
         if bus.get_ly() == 153 {
             self.window_y_hit = false;
 

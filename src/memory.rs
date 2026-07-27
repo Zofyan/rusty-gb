@@ -1,57 +1,61 @@
 use alloc::vec;
 use alloc::vec::Vec;
-use crate::bus::{ERAM, ERAM_END, ERAM_SIZE, HRAM, HRAM_END, HRAM_SIZE, INT_ENABLE, INT_ENABLE_END, INT_ENABLE_SIZE, IO_REGISTERS, IO_REGISTERS_END, IO_REGISTERS_SIZE, OAM, OAM_END, OAM_SIZE, ROM_0, ROM_0_END, ROM_0_SIZE, ROM_N, ROM_N_END, ROM_N_SIZE, VRAM, VRAM_END, VRAM_SIZE, WRAM_0, WRAM_0_END, WRAM_0_SIZE, WRAM_N, WRAM_N_END, WRAM_N_SIZE};
+use crate::bus::{ERAM, ERAM_END, ERAM_SIZE};
+
+/// Lowest address held in RAM. Everything below it is cartridge ROM, which is
+/// read straight out of [`crate::rom::Rom`] instead of being shadowed here --
+/// that saves 32 KiB and, on the RP2350, means bank switching costs no copy.
+pub const MEM_BASE: usize = 0x8000;
+/// 0x8000-0xFFFF: VRAM, ERAM, WRAM, OAM, IO registers, HRAM.
+pub const MEM_SIZE: usize = 0x10000 - MEM_BASE;
 
 pub struct Memory {
-    pub(crate) rom: Vec<u8>,
-    vram: Vec<u8>,
+    memory: [u8; MEM_SIZE],
     pub(crate) eram: Vec<u8>,
-    wram_0: Vec<u8>,
-    wram_n: Vec<u8>,
-    oam: Vec<u8>,
-    io_registers: Vec<u8>,
-    hram: Vec<u8>,
-    int_enable: Vec<u8>,
-    extra_rom: Vec<Vec<u8>>,
-    pub(crate) current_rom: u16,
-    pub(crate) current_eram: u16,
+    pub(crate) current_rom: usize,
+    pub(crate) current_eram: usize,
     pub eram_enable: bool,
     pub(crate) banking_mode: u8,
-    pub(crate) rom_address_cache: u16
 }
+
 impl Memory {
     pub fn new() -> Memory {
-        Memory { rom: vec![0; (ROM_0_SIZE + ROM_N_SIZE) as usize], vram: vec![0; VRAM_SIZE as usize], eram: vec![0; ERAM_SIZE as usize], wram_0: vec![0; WRAM_0_SIZE as usize], wram_n: vec![0; WRAM_N_SIZE as usize], oam: vec![0; OAM_SIZE as usize], io_registers: vec![0; IO_REGISTERS_SIZE as usize], hram: vec![0; HRAM_SIZE as usize], int_enable: vec![0; INT_ENABLE_SIZE as usize], extra_rom: vec![], current_rom: 0, current_eram: 0, banking_mode: 0, eram_enable: false, rom_address_cache: 0 }
-    }
-    pub fn get(&self, address: u16) -> u8 {
-        match address {
-            ..=ROM_0_END => self.rom[address as usize],
-            ROM_N..=ROM_N_END => self.rom[address as usize],
-            VRAM..=VRAM_END => self.vram[(address - VRAM) as usize],
-            ERAM..=ERAM_END => self.eram[(self.current_eram * ERAM_SIZE + (address - ERAM)) as usize],
-            WRAM_0..=WRAM_0_END => self.wram_0[(address - WRAM_0) as usize],
-            WRAM_N..=WRAM_N_END => self.wram_n[(address - WRAM_N) as usize],
-            OAM..=OAM_END => self.oam[(address - OAM) as usize],
-            IO_REGISTERS..=IO_REGISTERS_END => self.io_registers[(address - IO_REGISTERS) as usize],
-            HRAM..=HRAM_END => self.hram[(address - HRAM) as usize],
-            INT_ENABLE..=INT_ENABLE_END => self.int_enable[(address - INT_ENABLE) as usize],
-            _ => { 0xFF }
+        Memory {
+            memory: [0; MEM_SIZE],
+            eram: vec![],
+            current_rom: 1,
+            current_eram: 0,
+            banking_mode: 0,
+            eram_enable: false,
         }
     }
+
+    /// `address` must be >= [`MEM_BASE`]; cartridge reads go through `Rom`.
+    ///
+    /// Masking rather than subtracting `MEM_BASE` is deliberate: for an address
+    /// in range the two are identical, but the mask is provably less than the
+    /// array length, so there is no bounds check. Subtracting leaves LLVM unable
+    /// to rule out a wrapped index, and the resulting check on every RAM access
+    /// measured ~18%.
+    #[inline]
+    pub fn get(&self, address: u16) -> u8 {
+        debug_assert!(address as usize >= MEM_BASE, "{:#06x} is not RAM", address);
+        self.memory[(address as usize) & (MEM_SIZE - 1)]
+    }
+
+    #[inline]
     pub fn set(&mut self, address: u16, value: u8) {
-        let target = match address {
-            ..=ROM_0_END => panic!("Read only memory, bug in MBC? {:#04x}", address),
-            ROM_N..=ROM_N_END => panic!("Read only memory, bug in MBC? {:#04x}", address),
-            VRAM..=VRAM_END => &mut self.vram[(address - VRAM) as usize],
-            ERAM..=ERAM_END => &mut self.eram[(self.current_eram * ERAM_SIZE + (address - ERAM)) as usize],
-            WRAM_0..=WRAM_0_END => &mut self.wram_0[(address - WRAM_0) as usize],
-            WRAM_N..=WRAM_N_END => &mut self.wram_n[(address - WRAM_N) as usize],
-            OAM..=OAM_END => &mut self.oam[(address - OAM) as usize],
-            IO_REGISTERS..=IO_REGISTERS_END => &mut self.io_registers[(address - IO_REGISTERS) as usize],
-            HRAM..=HRAM_END => &mut self.hram[(address - HRAM) as usize],
-            INT_ENABLE..=INT_ENABLE_END => &mut self.int_enable[(address - INT_ENABLE) as usize],
-            _ => panic!("Not implemented yet!")
-        };
-        *target = value
+        debug_assert!(address as usize >= MEM_BASE, "{:#06x} is not RAM", address);
+        self.memory[(address as usize) & (MEM_SIZE - 1)] = value
+    }
+
+    /// Saves the live external RAM page and pages `bank` in.
+    pub fn swap_eram(&mut self, bank: usize) {
+        const LIVE: usize = ERAM - MEM_BASE;
+        let off = self.current_eram * ERAM_SIZE;
+        self.eram[off..off + ERAM_SIZE].copy_from_slice(&self.memory[LIVE..=ERAM_END - MEM_BASE]);
+        self.current_eram = bank;
+        let off = bank * ERAM_SIZE;
+        self.memory[LIVE..=ERAM_END - MEM_BASE].copy_from_slice(&self.eram[off..off + ERAM_SIZE]);
     }
 }

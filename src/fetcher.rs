@@ -1,8 +1,36 @@
-use alloc::vec;
-use alloc::vec::Vec;
 use crate::bus::{Bus, VRAM};
-use crate::ppu::OAM;
 
+/// Spreads the 8 bits of `b` so bit `i` lands at bit `2i`.
+#[inline]
+fn spread(b: u8) -> u16 {
+    let mut x = b as u16;
+    x = (x | (x << 4)) & 0x0F0F;
+    x = (x | (x << 2)) & 0x3333;
+    (x | (x << 1)) & 0x5555
+}
+
+/// Packs one 8-pixel tile row from its two bitplanes into 2 bits per pixel,
+/// leftmost pixel in the high bits.
+///
+/// The straightforward loop over the 8 bits compiled to 35 Thumb instructions
+/// ending in 8 byte stores, which the consumer then had to load back one at a
+/// time. This is 23 instructions and leaves the whole row in one register.
+#[inline]
+pub fn decode_row(lo: u8, hi: u8) -> u16 {
+    spread(lo) | (spread(hi) << 1)
+}
+
+/// Reverses the order of the eight 2-bit pixels, for a horizontally flipped
+/// sprite. `reverse_bits` is a single `rbit` on Cortex-M33; it also swaps the
+/// two bits within each pixel, which the mask-and-shift undoes.
+#[inline]
+pub fn flip_row(row: u16) -> u16 {
+    let r = row.reverse_bits();
+    ((r & 0x5555) << 1) | ((r >> 1) & 0x5555)
+}
+
+/// Number of pixels a packed row holds.
+pub const ROW_PIXELS: usize = 8;
 
 enum FetcherState {
     ReadTileData0,
@@ -21,10 +49,9 @@ pub struct Fetcher {
     tile_line: u8,
     line_index: u8,
     pub tiles_set: bool,
-    pixel_data: [u8; 16],
-    oams: Vec<OAM>,
-    pub fifo_bg: Vec<u8>,
-    fifo_sprite: Vec<u8>,
+    /// 8 pixels at 2 bits each, leftmost in the high bits.
+    pub fifo_bg: u16,
+    pub fifo_bg_size: usize,
     state: FetcherState,
 }
 
@@ -38,15 +65,14 @@ impl Fetcher {
             map_address: 0,
             tile_line: 0,
             tile_id: 0,
-            pixel_data: [0; 16],
-            oams: vec![],
-            fifo_bg: Vec::with_capacity(16),
-            fifo_sprite: Vec::with_capacity(16),
+            fifo_bg: 0,
+            fifo_bg_size: 0,
             state: FetcherState::ReadTileID,
             line_index: 0,
             tiles_set: true,
         }
     }
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
     pub fn tick(&mut self, bus: &mut Bus) {
         match self.state {
             FetcherState::ReadTileData0 => self.read_tile_data(bus),
@@ -68,25 +94,25 @@ impl Fetcher {
             }
         };
         let address = offset + self.tile_line as u16 * 2;
-        let value1 = bus._get(address);
-        let value2 = bus._get(address + 1);
+        let value1 = bus.memory.get(address);
+        let value2 = bus.memory.get(address + 1);
 
-        for bit in 0..=7 {
-            self.pixel_data[7 - bit] = (value1 >> bit) & 1 | ((value2 >> bit) & 1 ) << 1;
-        }
+        // The consumer drains the FIFO on every tick, so a row never lands on
+        // top of leftover pixels.
+        debug_assert_eq!(self.fifo_bg_size, 0);
+        self.fifo_bg = decode_row(value1, value2);
+        self.fifo_bg_size = ROW_PIXELS;
 
         self.state = FetcherState::PushToFIFO;
     }
     fn push_to_fifo(&mut self, bus: &mut Bus) {
-        if self.fifo_bg.len() <= 8 {
-            self.fifo_bg.extend(self.pixel_data[..=7].iter().rev());
+        if self.fifo_bg_size <= 8 {
             self.tile_index = (self.tile_index + 1) % 32;
             self.read_tile_id(bus);
         }
     }
     fn read_tile_id(&mut self, bus: &Bus) {
-        self.tile_id = bus._get(self.map_address + self.tile_index as u16 + self.line_index as u16 * 32);
-        self.pixel_data.fill(0);
+        self.tile_id = bus.memory.get(self.map_address + self.tile_index as u16 + self.line_index as u16 * 32);
         self.state = FetcherState:: ReadTileData0
     }
 
@@ -97,6 +123,6 @@ impl Fetcher {
         self.tile_line = tile_line;
         self.read_tile_id(bus);
         self.state = FetcherState::ReadTileData0;
-        self.fifo_bg.clear();
+        self.fifo_bg_size = 0;
     }
 }

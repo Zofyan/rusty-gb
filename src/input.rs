@@ -1,7 +1,4 @@
-use alloc::string::ToString;
-use defmt::println;
 use crate::bus::Bus;
-use crate::mbc::MBC;
 
 pub trait Input {
     fn check_input(&mut self, _: &mut Bus) {}

@@ -46,6 +46,15 @@ overflow-checks = true
 [profile.release]
 debug = true
 opt-level = 3
+# Cross-crate inlining matters much more once a HAL is in the build than it
+# does for a single-crate host binary, and on a flash-executing target every
+# byte of code competes for the 16 KiB XIP cache.
+lto = "fat"
+codegen-units = 1
 
-[target.thumbv6m-none-eabi]
-runner = "elf2uf2-rs -d"
+# For the RP2350. Kept separate from `release` so that `cargo test --release`
+# keeps unwinding, which `undefined_opcodes_still_panic` needs.
+[profile.embedded]
+inherits = "release"
+panic = "abort"
+debug = false

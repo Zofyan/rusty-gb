@@ -1,0 +1,20 @@
+# The RP2350 (Pico 2) is a Cortex-M33: `thumbv8m.main-none-eabihf`.
+# The previous setting lived in Cargo.toml, where Cargo ignores it ("unused
+# manifest key"), and named `thumbv6m-none-eabi`, which is the Cortex-M0+ of
+# the RP2040.
+[target.thumbv8m.main-none-eabihf]
+runner = "picotool load -u -v -x -t elf"
+rustflags = [
+    # Without this, codegen targets baseline v8-M and uses neither the DSP
+    # instructions nor the single-precision FPU the RP2350 actually has.
+    "-C", "target-cpu=cortex-m33",
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+]
+
+# This crate is `no_std`/`no_main` and depends on rp235x-hal and cortex-m, none
+# of which build for the host, so a bare `cargo build` has nothing sensible to
+# target. Making the Pico 2 the default means `cargo build` and `cargo run`
+# work without `--target`.
+[build]
+target = "thumbv8m.main-none-eabihf"

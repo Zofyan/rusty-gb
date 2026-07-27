@@ -20,12 +20,11 @@ mod window_fetcher;
 mod input;
 mod mbc;
 mod rom;
-mod util;
 
 const ROM: &[u8] = include_bytes!("../test-roms/Pokemon Red.gb");
 
 fn main() {
-    let game = rom::File::new("./test-roms/Pokemon Red.gb".to_string());
+    let game = rom::Rom::file("./test-roms/Pokemon Red.gb");
     let output = output::dummy::Dummy::new();
     //let output = output::lcd::LCD::new(4);
     let input = input::Dummy::new();
@@ -46,11 +45,11 @@ mod tests {
     use crate::emulator::Emulator;
     use crate::input;
     use crate::output::dummy::Dummy;
-    use crate::rom::File;
+    use crate::rom::Rom;
 
     #[test]
     fn blargg1() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("01-special.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("01-special.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -61,7 +60,7 @@ mod tests {
     }
     #[test]
     fn blargg2() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("02-interrupts.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("02-interrupts.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -72,7 +71,7 @@ mod tests {
     }
     #[test]
     fn blargg3() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("03-op sp,hl.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("03-op sp,hl.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -83,7 +82,7 @@ mod tests {
     }
     #[test]
     fn blargg4() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("04-op r,imm.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("04-op r,imm.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -94,7 +93,7 @@ mod tests {
     }
     #[test]
     fn blargg5() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("05-op rp.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("05-op rp.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -105,7 +104,7 @@ mod tests {
     }
     #[test]
     fn blargg6() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("06-ld r,r.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("06-ld r,r.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -116,7 +115,7 @@ mod tests {
     }
     #[test]
     fn blargg7() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("07-jr,jp,call,ret,rst.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("07-jr,jp,call,ret,rst.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -127,7 +126,7 @@ mod tests {
     }
     #[test]
     fn blargg8() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("08-misc instrs.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("08-misc instrs.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -138,7 +137,7 @@ mod tests {
     }
     #[test]
     fn blargg9() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("09-op r,r.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("09-op r,r.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -149,7 +148,7 @@ mod tests {
     }
     #[test]
     fn blargg10() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("10-bit ops.gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("10-bit ops.gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);
@@ -160,7 +159,7 @@ mod tests {
     }
     #[test]
     fn blargg11() {
-        let mut emu = Emulator::new(File::new(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("11-op a,(hl).gb").to_str().unwrap().parse().unwrap()), input::Dummy::new(), Dummy::new());
+        let mut emu = Emulator::new(Rom::file(Path::new("test-roms").join("gb-test-roms-master").join("cpu_instrs").join("individual").join("11-op a,(hl).gb").to_str().unwrap()), input::Dummy::new(), Dummy::new());
         let mut stdout = Vec::new();
 
         emu.run(600, &mut stdout);

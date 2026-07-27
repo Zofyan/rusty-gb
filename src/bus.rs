@@ -7,12 +7,12 @@ use bytesize::{kib, mib};
 use cloneable_file::CloneableFile;
 use rand::{Rng};
 use crate::input::Input;
-use crate::mbc::{MBC, MBC0, MBC1, MBC2, MBC3, MBC_DUMMY};
+use crate::mbc::Mbc;
 use crate::memory::Memory;
 use crate::output::Output;
 use crate::ppu::{PpuState, OAM};
 use crate::ppu::PpuState::{OAMFetch, PixelTransfer};
-use crate::rom::ROM;
+use crate::rom::Rom;
 
 pub const ROM_0: usize = 0x0000;
 pub const ROM_0_END: usize = 0x3FFF;
@@ -71,16 +71,16 @@ pub struct MMAPRegisters {
 pub struct Bus {
     pub(crate) memory: Memory,
     pub(crate) registers: MMAPRegisters,
-    mbc: Box<dyn MBC>,
+    mbc: Mbc,
+    pub(crate) rom: Rom,
     pub ppu_state: PpuState,
-    pub fifo: Vec<u8>,
     pub dma_address: u16,
     pub oams: [OAM; 40]
 
 }
 
 impl Bus {
-    pub fn new() -> Bus {
+    pub fn new(rom: Rom) -> Bus {
         Bus {
             memory: Memory::new(),
             registers: MMAPRegisters {
@@ -104,16 +104,22 @@ impl Bus {
                 interrupt_enable: 0,
                 interrupt_flag: 0,
             },
-            mbc: Box::new(MBC_DUMMY {} ),
+            mbc: Mbc::Dummy,
+            rom,
             ppu_state: OAMFetch,
-            fifo: vec![],
             dma_address: 0,
             oams: [OAM::empty(); 40],
         }
     }
+    #[inline]
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
     pub fn get(&self, address: u16) -> u8 {
         match address {
-            ..=0x7FFF | 0xA000..=0xBFFF => { self.mbc.read(address, &self.memory) },
+            // Cartridge ROM does not go through the mapper: every MBC returned
+            // `memory.get(address)` here, so the dispatch only ever cost an
+            // indirect call. This is the opcode-fetch path, so it matters most.
+            ..=0x7FFF => self.rom.read(address),
+            0xA000..=0xBFFF => { self.mbc.read(address, &self.memory) },
             0xe000..=0xfdff | 0xfea0..=0xfeff => 0xFF,
             0xFF00 => self.registers.joypad,
             0xFF01 => self.registers.sb,
@@ -165,9 +171,11 @@ impl Bus {
         let v2 = self.get(address + 1) as u16;
         v2 << 8 | v1
     }
+    #[inline]
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
     pub fn set(&mut self, address: u16, value: u8) {
         match address {
-            ..=0x7FFF | 0xA000..=0xBFFF => { self.mbc.write(address, value, &mut self.memory); },
+            ..=0x7FFF | 0xA000..=0xBFFF => { self.mbc.write(address, value, &mut self.memory, &mut self.rom); },
             0xe000..=0xfdff | 0xfea0..=0xfeff => {},
             0x8000..=0x9fff => {
                 match self.ppu_state {
@@ -301,6 +309,15 @@ impl Bus {
         value.set_bit(bit, true);
         self.set(address, value);
         (false, false, false, false)
+    }
+    /// Enabled-and-requested interrupts as a bitmask, lowest bit = highest priority.
+    #[inline]
+    pub fn pending_interrupts(&self) -> u8 {
+        self.registers.interrupt_enable & self.registers.interrupt_flag & 0x1F
+    }
+    #[inline]
+    pub fn clear_int_request(&mut self, bit: u8) {
+        self.registers.interrupt_flag &= !(1u8 << bit);
     }
     pub fn set_int_enable_joypad(&mut self, value: bool){
         self.registers.interrupt_enable.set_bit(4, value)
@@ -461,11 +478,8 @@ impl Bus {
     pub fn reset_joypad_buttons(&mut self) {
         self.registers.joypad = self.registers.joypad | 0x0F;
     }
-    pub fn load_rom<R: ROM + 'static>(&mut self, mut rom: R) {
-
-        //rom.clone().unwrap().read_exact(&mut self.memory.memory[..=ROM_N_END]).unwrap();
-        rom.read(0, &mut self.memory.memory[..=ROM_N_END]);
-
+    /// Reads the cartridge header and installs the matching mapper.
+    pub fn load_rom(&mut self) {
         let rom_size = match self.get(0x0148) {
             0x00 => kib(32u64),
             0x01 => kib(64u64),
@@ -489,23 +503,13 @@ impl Bus {
             _ => panic!("Not implemented yet! {}", self.get(0x0149))
         }
 
-        match self._get(0x0147) {
-            0x00 => {
-                self.mbc = Box::new(MBC0::new(rom));
-            },
-            0x01 | 0x02 | 0x03 => {
-                self.mbc = Box::new(MBC1::new(rom, rom_size as usize));
-            },
-            0x05 | 0x06 => {
-                self.mbc = Box::new(MBC2::new(rom));
-            },
-            0x0F | 0x10 | 0x11 | 0x12 | 0x13 => {
-                self.mbc = Box::new(MBC3::new(rom));
-            }
-            _ => {
-                panic!("MBC not implemented yet! {:#02x}", self._get(0x147))
-            }
-        }
+        self.mbc = match self.get(0x0147) {
+            0x00 => Mbc::Mbc0,
+            0x01 | 0x02 | 0x03 => Mbc::Mbc1 { banking_mode: false, rom_size: rom_size as usize },
+            0x05 | 0x06 => Mbc::Mbc2,
+            0x0F | 0x10 | 0x11 | 0x12 | 0x13 => Mbc::Mbc3 { rtc_registers: false, rtc_register: 0x08 },
+            other => panic!("MBC not implemented yet! {:#02x}", other),
+        };
 
         self.memory.set(0xFF40, 0x91);
         self.memory.set(0xFF00, 0x00);
@@ -520,7 +524,7 @@ mod tests {
 
     #[test]
     fn rlc() {
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
         bus.set(0x8000, 0x80);
 
         let (z, _, h, c) = bus.rlc(false, false, 0, 0x8000);
@@ -531,7 +535,7 @@ mod tests {
     }
     #[test]
     fn sra() {
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
         bus.set(0x8000, 0x01);
 
         let (z, _, h, c) = bus.sra(false, false, 0, 0x8000);
@@ -542,7 +546,7 @@ mod tests {
     }
     #[test]
     fn rr() {
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
 
         bus.set(0x8000, 0x7C);
 
@@ -572,7 +576,7 @@ mod tests {
 
     #[test]
     fn standard() {
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
         assert_eq!(bus.get_ly(), 91);
     }
 }

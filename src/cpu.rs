@@ -49,6 +49,7 @@ impl Cpu {
                  bus.get(0xFF44)
         )
     }
+    #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
     pub fn step(&mut self, mut bus: &mut Bus, log: bool) -> usize {
         //self.log(bus);
 
@@ -62,22 +63,58 @@ impl Cpu {
         let opcode = bus.get(self.get_pc());
         let inst = (opcode >> 4, opcode & 0xF);
         let cycles = self.counter;
-        if !self.load(inst, &mut bus) &&
-            !self.alu(inst, &mut bus) &&
-            !self.load16(inst, &mut bus) &&
-            !self.alu16(inst, &mut bus) &&
-            !self.jump(inst, &mut bus) &&
-            !self.pop(inst, &mut bus) &&
-            !self.misc(inst, &mut bus) &&
-            !self.rotate(inst, &mut bus) &&
-            !self.reset(inst, &mut bus) &&
-            !self.call(inst, &mut bus) &&
-            !self.ret(inst, &mut bus) &&
-            !self.prefix(inst, &mut bus) &&
-            !self.push(inst, &mut bus) {
-            panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc())
-        }
+        self.dispatch(opcode, inst, &mut bus);
         self.counter - cycles
+    }
+
+    /// Routes an opcode straight to its handler.
+    ///
+    /// This used to try all thirteen handlers in sequence until one claimed the
+    /// opcode, so common instructions paid for every failed match before theirs:
+    /// PUSH was last of thirteen, RET eleventh, CALL tenth. One match over the
+    /// opcode lets the compiler emit a jump table instead, which costs no RAM.
+    ///
+    /// The arms below are not hand-derived: `dispatch_matches_handler_chain`
+    /// checks them against the original chain for every opcode and state.
+    #[inline]
+    fn dispatch(&mut self, opcode: u8, inst: (u8, u8), bus: &mut Bus) {
+        let handled = match opcode {
+            0x02 | 0x06 | 0x0A | 0x0E | 0x12 | 0x16 | 0x1A | 0x1E | 0x22 | 0x26 | 0x2A | 0x2E
+            | 0x32 | 0x36 | 0x3A | 0x3E | 0x40..=0x75 | 0x77..=0x7F | 0xE0 | 0xE2 | 0xEA
+            | 0xF0 | 0xF2 | 0xFA => self.load(inst, bus),
+
+            0x04 | 0x05 | 0x0C | 0x0D | 0x14 | 0x15 | 0x1C | 0x1D | 0x24 | 0x25 | 0x2C | 0x2D
+            | 0x34 | 0x35 | 0x3C | 0x3D | 0x80..=0xBF | 0xC6 | 0xCE | 0xD6 | 0xDE | 0xE6
+            | 0xEE | 0xF6 | 0xFE => self.alu(inst, bus),
+
+            0x01 | 0x08 | 0x11 | 0x21 | 0x31 | 0xF9 => self.load16(inst, bus),
+
+            0x03 | 0x09 | 0x0B | 0x13 | 0x19 | 0x1B | 0x23 | 0x29 | 0x2B | 0x33 | 0x39
+            | 0x3B => self.alu16(inst, bus),
+
+            0x18 | 0x20 | 0x28 | 0x30 | 0x38 | 0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA
+            | 0xE9 => self.jump(inst, bus),
+
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop(inst, bus),
+
+            0x00 | 0x10 | 0x27 | 0x2F | 0x37 | 0x3F | 0x76 | 0xD9 | 0xE8 | 0xF3
+            | 0xF8 | 0xFB => self.misc(inst, bus),
+
+            0x07 | 0x0F | 0x17 | 0x1F => self.rotate(inst, bus),
+
+            0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.reset(inst, bus),
+
+            0xC4 | 0xCC | 0xCD | 0xD4 | 0xDC => self.call(inst, bus),
+
+            0xC0 | 0xC8 | 0xC9 | 0xD0 | 0xD8 => self.ret(inst, bus),
+
+            0xCB => self.prefix(inst, bus),
+
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push(inst, bus),
+
+            _ => panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc()),
+        };
+        debug_assert!(handled, "handler declined opcode {:#04x}", opcode);
     }
 
     fn _cycles(&mut self, _count: usize) {
@@ -719,7 +756,7 @@ mod tests {
     #[test]
     fn sp_signed() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
 
         cpu.set_pc(0x8000);
         cpu.set_sp(0x000F);
@@ -756,7 +793,7 @@ mod tests {
     #[test]
     fn jump() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
         let mut rng = rand::thread_rng();
 
 
@@ -780,7 +817,7 @@ mod tests {
     #[test]
     fn load() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
         let mut rng = rand::thread_rng();
 
         let x1 = rng.gen_range(0..255);
@@ -818,7 +855,7 @@ mod tests {
     #[test]
     fn alu16() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
 
         cpu.set_hl(0x4C00);
         cpu.alu16((0x2, 0x9), &mut bus);
@@ -828,7 +865,7 @@ mod tests {
     #[test]
     fn alu() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
         let mut rng = rand::thread_rng();
 
         let s2 = rng.gen_range(8..=15);
@@ -926,7 +963,7 @@ mod tests {
     #[test]
     fn inc() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
 
         let x1 = 0x1;
         let x2 = 0xff;
@@ -950,7 +987,7 @@ mod tests {
     #[test]
     fn dec() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
 
         let x1 = 0x1;
         let x2 = 0xff;
@@ -974,7 +1011,7 @@ mod tests {
     #[test]
     fn stack() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
         let mut rng = rand::thread_rng();
 
         let x1 = rng.gen_range(0..=255);
@@ -1006,7 +1043,7 @@ mod tests {
     }
     fn sub_cycle(inst: u8, cycles: usize){
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
         cpu.set_pc(0x8000);
         cpu.set_hl(0xB000);
         cpu.set_bc(0xB000);
@@ -1282,5 +1319,118 @@ mod tests {
         sub_cycle(0xfb, 1);
         sub_cycle(0xfe, 2);
         sub_cycle(0xff, 4);
+    }
+}
+#[cfg(test)]
+mod dispatch_equivalence {
+    use crate::bus::Bus;
+    use crate::cpu::Cpu;
+    use rand::{Rng, SeedableRng};
+    use rand::rngs::StdRng;
+
+    /// Opcodes with no meaning on real hardware; both dispatchers must panic.
+    const UNDEFINED: [u8; 11] = [0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD];
+
+    impl Cpu {
+        /// The original sequential handler chain, kept as the reference the
+        /// jump-table dispatch is checked against.
+        fn dispatch_via_chain(&mut self, opcode: u8, inst: (u8, u8), bus: &mut Bus) {
+            if !self.load(inst, bus)
+                && !self.alu(inst, bus)
+                && !self.load16(inst, bus)
+                && !self.alu16(inst, bus)
+                && !self.jump(inst, bus)
+                && !self.pop(inst, bus)
+                && !self.misc(inst, bus)
+                && !self.rotate(inst, bus)
+                && !self.reset(inst, bus)
+                && !self.call(inst, bus)
+                && !self.ret(inst, bus)
+                && !self.prefix(inst, bus)
+                && !self.push(inst, bus)
+            {
+                panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc())
+            }
+        }
+
+        fn state(&self) -> [usize; 13] {
+            [self.a.get() as usize, self.b.get() as usize, self.c.get() as usize,
+             self.d.get() as usize, self.e.get() as usize, self.f.get() as usize,
+             self.h.get() as usize, self.l.get() as usize, self.sp as usize,
+             self.pc as usize, self.counter, self.ime as usize, self.halted as usize]
+        }
+    }
+
+    /// Builds a CPU and bus in the same pseudo-random state, with `opcode` and
+    /// random operand bytes sitting at PC in WRAM.
+    fn scenario(seed: u64, opcode: u8) -> (Cpu, Bus) {
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+
+        cpu.a.set(rng.gen()); cpu.b.set(rng.gen()); cpu.c.set(rng.gen());
+        cpu.d.set(rng.gen()); cpu.e.set(rng.gen()); cpu.h.set(rng.gen());
+        cpu.l.set(rng.gen());
+        cpu.f.set(rng.gen::<u8>() & 0xF0);
+        // Keep SP and HL in WRAM so pushes and (HL) accesses hit real memory.
+        cpu.set_sp(0xD000 + (rng.gen::<u16>() & 0x0FFF));
+        cpu.set_hl(0xC800 + (rng.gen::<u16>() & 0x00FF));
+        cpu.set_ime(rng.gen());
+
+        for addr in 0xC000u16..=0xDFFF {
+            bus.set(addr, rng.gen());
+        }
+        let pc = 0xC100;
+        cpu.set_pc(pc);
+        bus.set(pc, opcode);
+        bus.set(pc + 1, rng.gen());
+        bus.set(pc + 2, rng.gen());
+        (cpu, bus)
+    }
+
+    fn memory_digest(bus: &Bus) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        // 0x8000 up: everything below is cartridge ROM, which is read-only and
+        // not held in RAM.
+        for addr in 0x8000..=0xFFFFu32 {
+            h ^= bus.memory.get(addr as u16) as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        h
+    }
+
+    #[test]
+    fn dispatch_matches_handler_chain() {
+        for op in 0u16..=255 {
+            let opcode = op as u8;
+            if UNDEFINED.contains(&opcode) {
+                continue;
+            }
+            let inst = (opcode >> 4, opcode & 0xF);
+            for seed in 0..8u64 {
+                let (mut cpu_a, mut bus_a) = scenario(seed, opcode);
+                let (mut cpu_b, mut bus_b) = scenario(seed, opcode);
+
+                cpu_a.dispatch_via_chain(opcode, inst, &mut bus_a);
+                cpu_b.dispatch(opcode, inst, &mut bus_b);
+
+                assert_eq!(cpu_a.state(), cpu_b.state(),
+                    "cpu state diverged for opcode {:#04x} seed {}", opcode, seed);
+                assert_eq!(memory_digest(&bus_a), memory_digest(&bus_b),
+                    "memory diverged for opcode {:#04x} seed {}", opcode, seed);
+            }
+        }
+    }
+
+    #[test]
+    fn undefined_opcodes_still_panic() {
+        for opcode in UNDEFINED {
+            let inst = (opcode >> 4, opcode & 0xF);
+            let (mut cpu, mut bus) = scenario(0, opcode);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                cpu.dispatch(opcode, inst, &mut bus)
+            }));
+            assert!(result.is_err(), "opcode {:#04x} should be rejected", opcode);
+        }
     }
 }

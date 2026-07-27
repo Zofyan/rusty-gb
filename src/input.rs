@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use gilrs::{Gilrs, Button, Event, GamepadId, Gamepad};
 use crate::bus::Bus;
-use crate::mbc::MBC;
 
 pub trait Input {
     fn check_input(&mut self, _: &mut Bus) {}

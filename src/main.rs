@@ -6,6 +6,7 @@ use core::fmt::Write;
 use core::mem::MaybeUninit;
 use defmt::println;
 use embedded_alloc::Heap;
+use defmt_rtt as _;
 use panic_halt as _;
 use rp235x_hal as hal;
 
@@ -34,6 +35,8 @@ mod rom;
 pub static IMAGE_DEF: hal::block::ImageDef = hal::block::ImageDef::secure_exe();
 
 pub(crate) const XTAL_FREQ_HZ: u32 = 12_000_000u32;
+
+defmt::timestamp!("{=u64:us}", platform::micros());
 
 /// The cartridge, linked into XIP flash.
 ///

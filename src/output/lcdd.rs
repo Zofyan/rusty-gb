@@ -1,3 +1,5 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use crate::output::{Output, PX_COLOR, PX_PALETTE, PX_SPRITE, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 pub struct LCDD {

@@ -32,9 +32,18 @@ fn bank_of(data: &'static [u8], index: usize) -> &'static [u8; BANK_SIZE] {
 }
 
 impl Rom {
-    /// The cartridge is already addressable (XIP flash) on this target, so
-    /// there is no host-side `Rom::file` loader here -- it lives on `dmg`,
-    /// where `std::fs` and `Box::leak` are available.
+    /// Host build: load the cartridge and hand it a 'static lifetime.
+    ///
+    /// Leaking is deliberate. The image lives for the whole run either way, and
+    /// it lets the host share [`Rom::mapped`]'s `&'static [u8]` shape with the
+    /// Pico, where the cartridge really is static (XIP flash).
+    #[cfg(not(target_os = "none"))]
+    pub fn file(path: &str) -> Rom {
+        let data = std::fs::read(path).expect("Could not open rom");
+        Rom::mapped(alloc::boxed::Box::leak(data.into_boxed_slice()))
+    }
+
+    /// Wraps an image that is already addressable for its whole lifetime.
     pub fn mapped(data: &'static [u8]) -> Rom {
         let banks = data.len() / BANK_SIZE;
         assert!(banks >= 2 && banks.is_power_of_two(), "bad rom size {}", data.len());

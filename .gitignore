@@ -9,8 +9,8 @@ rp-binary-info
 picotool.exe
 check.py
 .DS_Store
-# config.toml is not local tooling here: it names the Pico 2 target and the
-# linker flags, without which a bare `cargo build` targets the host and fails.
+# config.toml is not local tooling here: it carries the linker flags and the
+# picotool runner the Pico 2 target needs, so it has to be tracked.
 .cargo/*
 !.cargo/config.toml
 .claude/

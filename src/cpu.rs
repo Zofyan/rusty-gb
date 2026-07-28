@@ -1,4 +1,3 @@
-use defmt::println;
 use crate::bus::{Bus, INT_ENABLE, INT_REQUEST};
 use crate::register::Register;
 
@@ -31,26 +30,31 @@ impl Cpu {
         cpu
     }
 
-    /// Gameboy-Doctor style trace. defmt needs the argument type in the format
-    /// string, so the `{:02X}` of the host build becomes `{=u8:02X}` here.
+    /// Gameboy-Doctor style trace.
+    ///
+    /// This is the one place the two targets cannot share a line of source:
+    /// defmt encodes the argument types into the format string (`{=u8:02X}`)
+    /// so it can ship the formatting off-device, and `core::fmt` rejects that
+    /// syntax. The argument list is identical, so only the literal differs.
+    #[allow(dead_code)]
     fn log(&self, bus: &Bus) {
-        println!("A: {=u8:02X} F: {=u8:02X} B: {=u8:02X} C: {=u8:02X} D: {=u8:02X} E: {=u8:02X} H: {=u8:02X} L: {=u8:02X} SP: {=u16:04X} PC: 00:{=u16:04X} ({=u8:02X} {=u8:02X} {=u8:02X} {=u8:02X}) LY: {=u8:02X}",
-                 self.a.get(),
-                 self.f.get(),
-                 self.b.get(),
-                 self.c.get(),
-                 self.d.get(),
-                 self.e.get(),
-                 self.h.get(),
-                 self.l.get(),
-                 self.get_sp(),
-                 self.get_pc(),
-                 bus.get(self.get_pc()),
-                 bus.get(self.get_pc() + 1),
-                 bus.get(self.get_pc() + 2),
-                 bus.get(self.get_pc() + 3),
-                 bus.get(0xFF44)
-        )
+        #[cfg(target_os = "none")]
+        defmt::println!("A: {=u8:02X} F: {=u8:02X} B: {=u8:02X} C: {=u8:02X} D: {=u8:02X} E: {=u8:02X} H: {=u8:02X} L: {=u8:02X} SP: {=u16:04X} PC: 00:{=u16:04X} ({=u8:02X} {=u8:02X} {=u8:02X} {=u8:02X}) LY: {=u8:02X}",
+                 self.a.get(), self.f.get(), self.b.get(), self.c.get(),
+                 self.d.get(), self.e.get(), self.h.get(), self.l.get(),
+                 self.get_sp(), self.get_pc(),
+                 bus.get(self.get_pc()), bus.get(self.get_pc() + 1),
+                 bus.get(self.get_pc() + 2), bus.get(self.get_pc() + 3),
+                 bus.get(0xFF44));
+
+        #[cfg(not(target_os = "none"))]
+        println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X}) LY: {:02X}",
+                 self.a.get(), self.f.get(), self.b.get(), self.c.get(),
+                 self.d.get(), self.e.get(), self.h.get(), self.l.get(),
+                 self.get_sp(), self.get_pc(),
+                 bus.get(self.get_pc()), bus.get(self.get_pc() + 1),
+                 bus.get(self.get_pc() + 2), bus.get(self.get_pc() + 3),
+                 bus.get(0xFF44));
     }
     #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
     pub fn step(&mut self, mut bus: &mut Bus, log: bool) -> usize {
@@ -747,5 +751,693 @@ impl Cpu {
             self._cycles(2)
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::Rng;
+    use crate::bus::Bus;
+    use crate::cpu::Cpu;
+
+    #[test]
+    fn sp_signed() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+
+        cpu.set_pc(0x8000);
+        cpu.set_sp(0x000F);
+        bus.set(0x8001, 0x01);
+        cpu.misc((0xe, 8), &mut bus);
+        assert_eq!(cpu.get_sp(), 0x0010);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_flag_c(), false);
+
+        cpu.set_pc(0x8000);
+        cpu.set_sp(0x00FF);
+        bus.set(0x8001, 1);
+        cpu.misc((0xe, 8), &mut bus);
+        assert_eq!(cpu.get_sp(), 0x0100);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_flag_c(), true);
+
+        cpu.set_pc(0x8000);
+        cpu.set_sp(0x0000);
+        bus.set(0x8001, 0xFF);
+        cpu.misc((0xe, 8), &mut bus);
+        assert_eq!(cpu.get_sp(), 0xFFFF);
+        assert_eq!(cpu.get_flag_h(), false);
+        assert_eq!(cpu.get_flag_c(), false);
+
+        cpu.set_pc(0x8000);
+        cpu.set_sp(0x0001);
+        bus.set(0xB001, 0xFF);
+        cpu.misc((0xe, 8), &mut bus);
+        assert_eq!(cpu.get_sp(), 0x0000);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_flag_c(), true);
+    }
+    #[test]
+    fn jump() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+        let mut rng = rand::thread_rng();
+
+
+        for _ in [..=30] {
+            let x1 = rng.gen_range(0..255);
+            let y1 = rng.gen_range(0xC000..0xDFFF);
+            cpu.set_pc(y1);
+            bus.set(y1 + 1, x1);
+
+            cpu.jump((0x1, 0x8), &mut bus);
+            assert_eq!(cpu.get_pc(), y1.wrapping_add_signed((x1 as i8) as i16) + 2);
+        }
+
+        cpu.set_pc(0x8209);
+        bus.set(0x8209 + 1, 0xFB);
+        cpu.set_flag_z(false);
+
+        cpu.jump((0x2, 0x0), &mut bus);
+        assert_eq!(cpu.get_pc(), 0x8206);
+    }
+    #[test]
+    fn load() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+        let mut rng = rand::thread_rng();
+
+        let x1 = rng.gen_range(0..255);
+        let x2 = rng.gen_range(0..255);
+        let x3 = rng.gen_range(0..255);
+        let x4 = rng.gen_range(0..255);
+        let x5 = rng.gen_range(0xC000..=0xDFFF);
+
+        cpu.c.set(x1);
+        cpu.d.set(x2);
+
+        cpu.load((0x5, 0x1), &mut bus);
+        assert_eq!(cpu.c.get(), x1);
+        assert_eq!(cpu.d.get(), x1);
+
+        cpu.set_hl(x5);
+        cpu.a.set(x3);
+
+        cpu.load((0x2, 0x2), &mut bus);
+        assert_eq!(bus.get(x5), x3);
+
+        cpu.b.set(x4);
+        cpu.load((0x7, 0x0), &mut bus);
+        assert_eq!(bus.get(x5 + 1), x4);
+
+        cpu.set_bc(x5 + 1);
+        cpu.load((0x0, 0xa), &mut bus);
+        assert_eq!(cpu.a.get(), x4);
+
+        cpu.set_pc(x5);
+        bus.set(cpu.get_pc() + 1, x1);
+        cpu.load((1, 0xe), &mut bus);
+        assert_eq!(cpu.e.get(), x1);
+    }
+    #[test]
+    fn alu16() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+
+        cpu.set_hl(0x4C00);
+        cpu.alu16((0x2, 0x9), &mut bus);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_hl(), 0x9800);
+    }
+    #[test]
+    fn alu() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+        let mut rng = rand::thread_rng();
+
+        let s2 = rng.gen_range(8..=15);
+        let x1 = rng.gen_range(0..=255);
+        let x2 = rng.gen_range(0..=255);
+        let x3 = rng.gen_range(0..=255);
+        let x4 = rng.gen_range(0..=127);
+        let x5 = rng.gen_range(128..=255);
+        let y1 = rng.gen_range(0xC000..=0xDFFF);
+
+        cpu.a.set(x1);
+        cpu.d.set(x2);
+        cpu.set_hl(y1);
+        bus.set(y1, x3);
+
+        cpu.alu((0x8, 0x2), &mut bus);
+        assert_eq!(cpu.a.get(), x1.wrapping_add(x2));
+
+        cpu.a.set(x1);
+        cpu.alu((0x8, 0x6), &mut bus);
+        assert_eq!(cpu.a.get(), x1.wrapping_add(x3));
+
+        cpu.a.set(x1);
+        cpu.alu((0x9, 0x2), &mut bus);
+        assert_eq!(cpu.a.get(), x1.wrapping_sub(x2));
+
+        cpu.a.set(x1);
+        cpu.alu((0x9, 0x6), &mut bus);
+        assert_eq!(cpu.a.get(), x1.wrapping_sub(x3));
+
+        cpu.a.set(x1);
+        cpu.set_flag_c(false);
+        cpu.alu((0x8, 0xa), &mut bus);
+        assert_eq!(cpu.a.get(), x1.wrapping_add(x2));
+
+        cpu.a.set(x1);
+        cpu.set_flag_c(true);
+        cpu.alu((0x8, 0xe), &mut bus);
+        assert_eq!(cpu.a.get(), x1.wrapping_add(x3 + 1));
+
+        cpu.a.set(x1);
+        cpu.set_flag_c(false);
+        cpu.alu((0x9, 0xa), &mut bus);
+        assert_eq!(cpu.a.get(), x1.wrapping_sub(x2));
+
+        cpu.a.set(x1);
+        cpu.set_flag_c(true);
+        cpu.alu((0x9, 0xe), &mut bus);
+        assert_eq!(cpu.a.get(), x1.wrapping_sub(x3 + 1));
+
+        cpu.a.set(x1);
+        cpu.alu((0xa, 0x2), &mut bus);
+        assert_eq!(cpu.a.get(), x1 & x2);
+
+        cpu.a.set(x1);
+        cpu.alu((0xa, 0x6), &mut bus);
+        assert_eq!(cpu.a.get(), x1 & x3);
+
+        cpu.a.set(x1);
+        cpu.alu((0xb, 0x2), &mut bus);
+        assert_eq!(cpu.a.get(), x1 | x2);
+
+        cpu.a.set(x1);
+        cpu.alu((0xb, 0x6), &mut bus);
+        assert_eq!(cpu.a.get(), x1 | x3);
+
+        cpu.a.set(x1);
+        cpu.alu((0xa, 0xa), &mut bus);
+        assert_eq!(cpu.a.get(), x1 ^ x2);
+
+        cpu.a.set(x1);
+        cpu.alu((0xa, 0xe), &mut bus);
+        assert_eq!(cpu.a.get(), x1 ^ x3);
+
+        cpu.a.set(x4);
+        cpu.b.set(x5);
+        cpu.alu((0x9, 0), &mut bus);
+        assert_eq!(cpu.get_flag_c(), true);
+        assert_eq!(cpu.get_flag_n(), true);
+        assert_eq!(cpu.get_flag_z(), x4 == x5);
+
+        cpu.a.set(x4);
+        cpu.b.set(x4);
+        cpu.alu((0xb, 0x8), &mut bus);
+        assert_eq!(cpu.get_flag_n(), true);
+        assert_eq!(cpu.get_flag_z(), true);
+
+        cpu.a.set(s2);
+        cpu.b.set(s2);
+        cpu.alu((0x8, 0), &mut bus);
+        assert_eq!(cpu.get_flag_n(), false);
+        assert_eq!(cpu.get_flag_h(), true);
+    }
+
+    #[test]
+    fn inc() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+
+        let x1 = 0x1;
+        let x2 = 0xff;
+        let x3 = 0x0f;
+
+        cpu.c.set(x1);
+        cpu.alu((0, 0xc), &mut bus);
+        assert_eq!(cpu.get_flag_z(), false);
+        assert_eq!(cpu.get_flag_n(), false);
+
+        cpu.c.set(x2);
+        cpu.alu((0, 0xc), &mut bus);
+        assert_eq!(cpu.get_flag_z(), true);
+        assert_eq!(cpu.get_flag_n(), false);
+
+        cpu.c.set(x3);
+        cpu.alu((0, 0xc), &mut bus);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_flag_n(), false);
+    }
+    #[test]
+    fn dec() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+
+        let x1 = 0x1;
+        let x2 = 0xff;
+        let x3 = 0x00;
+
+        cpu.c.set(x2);
+        cpu.alu((0, 0xd), &mut bus);
+        assert_eq!(cpu.get_flag_z(), false);
+        assert_eq!(cpu.get_flag_n(), true);
+
+        cpu.c.set(x1);
+        cpu.alu((0, 0xd), &mut bus);
+        assert_eq!(cpu.get_flag_z(), true);
+        assert_eq!(cpu.get_flag_n(), true);
+
+        cpu.c.set(x3);
+        cpu.alu((0, 0xd), &mut bus);
+        assert_eq!(cpu.get_flag_h(), true);
+        assert_eq!(cpu.get_flag_n(), true);
+    }
+    #[test]
+    fn stack() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+        let mut rng = rand::thread_rng();
+
+        let x1 = rng.gen_range(0..=255);
+        let x2 = rng.gen_range(0..=255);
+        let y1 = rng.gen_range(0..=0xFFFF);
+        let y2 = rng.gen_range(0..=0xFFFF);
+
+        cpu.set_bc(y1);
+        cpu.push((0xc, 5), &mut bus);
+        cpu.pop((0xd, 1), &mut bus);
+        assert_eq!(cpu.get_de(), y1);
+
+        cpu.set_bc(y1);
+        cpu.push((0xc, 5), &mut bus);
+        cpu.set_bc(x1);
+        cpu.push((0xc, 5), &mut bus);
+        cpu.set_bc(y2);
+        cpu.push((0xc, 5), &mut bus);
+        cpu.set_bc(x2);
+        cpu.push((0xc, 5), &mut bus);
+        cpu.pop((0xd, 1), &mut bus);
+        assert_eq!(cpu.get_de(), x2);
+        cpu.pop((0xd, 1), &mut bus);
+        assert_eq!(cpu.get_de(), y2);
+        cpu.pop((0xd, 1), &mut bus);
+        assert_eq!(cpu.get_de(), x1);
+        cpu.pop((0xd, 1), &mut bus);
+        assert_eq!(cpu.get_de(), y1);
+    }
+    fn sub_cycle(inst: u8, cycles: usize){
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+        cpu.set_pc(0x8000);
+        cpu.set_hl(0xB000);
+        cpu.set_bc(0xB000);
+        cpu.set_de(0xB000);
+        cpu.set_sp(0xB000);
+        cpu.set_flag_z(false);
+        cpu.set_flag_c(false);
+        bus.set(cpu.get_pc(), inst);
+        bus.set(cpu.get_pc() + 1, 0xBB);
+        bus.set(cpu.get_pc() + 2, 0xBB);
+        cpu.counter = 0;
+        cpu.step(&mut bus, false);
+        assert_eq!(cpu.counter, cycles);
+    }
+    #[test]
+    fn cycles() {
+        sub_cycle(0x00, 1);
+        sub_cycle(0x01, 3);
+        sub_cycle(0x02, 2);
+        sub_cycle(0x03, 2);
+        sub_cycle(0x04, 1);
+        sub_cycle(0x05, 1);
+        sub_cycle(0x06, 2);
+        sub_cycle(0x07, 1);
+        sub_cycle(0x08, 5);
+        sub_cycle(0x09, 2);
+        sub_cycle(0x0a, 2);
+        sub_cycle(0x0b, 2);
+        sub_cycle(0x0c, 1);
+        sub_cycle(0x0d, 1);
+        sub_cycle(0x0e, 2);
+        sub_cycle(0x0f, 1);
+
+        //sub_cycle(0x10, 1);
+        sub_cycle(0x11, 3);
+        sub_cycle(0x12, 2);
+        sub_cycle(0x13, 2);
+        sub_cycle(0x14, 1);
+        sub_cycle(0x15, 1);
+        sub_cycle(0x16, 2);
+        sub_cycle(0x17, 1);
+        sub_cycle(0x18, 3);
+        sub_cycle(0x19, 2);
+        sub_cycle(0x1a, 2);
+        sub_cycle(0x1b, 2);
+        sub_cycle(0x1c, 1);
+        sub_cycle(0x1d, 1);
+        sub_cycle(0x1e, 2);
+        sub_cycle(0x1f, 1);
+
+        sub_cycle(0x20, 3);
+        sub_cycle(0x21, 3);
+        sub_cycle(0x22, 2);
+        sub_cycle(0x23, 2);
+        sub_cycle(0x24, 1);
+        sub_cycle(0x25, 1);
+        sub_cycle(0x26, 2);
+        sub_cycle(0x27, 1);
+        sub_cycle(0x28, 2);
+        sub_cycle(0x29, 2);
+        sub_cycle(0x2a, 2);
+        sub_cycle(0x2b, 2);
+        sub_cycle(0x2c, 1);
+        sub_cycle(0x2d, 1);
+        sub_cycle(0x2e, 2);
+        sub_cycle(0x2f, 1);
+
+        sub_cycle(0x30, 3);
+        sub_cycle(0x31, 3);
+        sub_cycle(0x32, 2);
+        sub_cycle(0x33, 2);
+        sub_cycle(0x34, 3);
+        sub_cycle(0x35, 3);
+        sub_cycle(0x36, 3);
+        sub_cycle(0x37, 1);
+        sub_cycle(0x38, 2);
+        sub_cycle(0x39, 2);
+        sub_cycle(0x3a, 2);
+        sub_cycle(0x3b, 2);
+        sub_cycle(0x3c, 1);
+        sub_cycle(0x3d, 1);
+        sub_cycle(0x3e, 2);
+        sub_cycle(0x3f, 1);
+
+        sub_cycle(0x40, 1);
+        sub_cycle(0x41, 1);
+        sub_cycle(0x42, 1);
+        sub_cycle(0x43, 1);
+        sub_cycle(0x44, 1);
+        sub_cycle(0x45, 1);
+        sub_cycle(0x46, 2);
+        sub_cycle(0x47, 1);
+        sub_cycle(0x48, 1);
+        sub_cycle(0x49, 1);
+        sub_cycle(0x4a, 1);
+        sub_cycle(0x4b, 1);
+        sub_cycle(0x4c, 1);
+        sub_cycle(0x4d, 1);
+        sub_cycle(0x4e, 2);
+        sub_cycle(0x4f, 1);
+
+        sub_cycle(0x50, 1);
+        sub_cycle(0x51, 1);
+        sub_cycle(0x52, 1);
+        sub_cycle(0x53, 1);
+        sub_cycle(0x54, 1);
+        sub_cycle(0x55, 1);
+        sub_cycle(0x56, 2);
+        sub_cycle(0x57, 1);
+        sub_cycle(0x58, 1);
+        sub_cycle(0x59, 1);
+        sub_cycle(0x5a, 1);
+        sub_cycle(0x5b, 1);
+        sub_cycle(0x5c, 1);
+        sub_cycle(0x5d, 1);
+        sub_cycle(0x5e, 2);
+        sub_cycle(0x5f, 1);
+
+        sub_cycle(0x60, 1);
+        sub_cycle(0x61, 1);
+        sub_cycle(0x62, 1);
+        sub_cycle(0x63, 1);
+        sub_cycle(0x64, 1);
+        sub_cycle(0x65, 1);
+        sub_cycle(0x66, 2);
+        sub_cycle(0x67, 1);
+        sub_cycle(0x68, 1);
+        sub_cycle(0x69, 1);
+        sub_cycle(0x6a, 1);
+        sub_cycle(0x6b, 1);
+        sub_cycle(0x6c, 1);
+        sub_cycle(0x6d, 1);
+        sub_cycle(0x6e, 2);
+        sub_cycle(0x6f, 1);
+
+        sub_cycle(0x70, 2);
+        sub_cycle(0x71, 2);
+        sub_cycle(0x72, 2);
+        sub_cycle(0x73, 2);
+        sub_cycle(0x74, 2);
+        sub_cycle(0x75, 2);
+        //sub_cycle(0x76, 2);
+        sub_cycle(0x77, 2);
+        sub_cycle(0x78, 1);
+        sub_cycle(0x79, 1);
+        sub_cycle(0x7a, 1);
+        sub_cycle(0x7b, 1);
+        sub_cycle(0x7c, 1);
+        sub_cycle(0x7d, 1);
+        sub_cycle(0x7e, 2);
+        sub_cycle(0x7f, 1);
+
+        sub_cycle(0x80, 1);
+        sub_cycle(0x81, 1);
+        sub_cycle(0x82, 1);
+        sub_cycle(0x83, 1);
+        sub_cycle(0x84, 1);
+        sub_cycle(0x85, 1);
+        sub_cycle(0x86, 2);
+        sub_cycle(0x87, 1);
+        sub_cycle(0x88, 1);
+        sub_cycle(0x89, 1);
+        sub_cycle(0x8a, 1);
+        sub_cycle(0x8b, 1);
+        sub_cycle(0x8c, 1);
+        sub_cycle(0x8d, 1);
+        sub_cycle(0x8e, 2);
+        sub_cycle(0x8f, 1);
+
+        sub_cycle(0x90, 1);
+        sub_cycle(0x91, 1);
+        sub_cycle(0x92, 1);
+        sub_cycle(0x93, 1);
+        sub_cycle(0x94, 1);
+        sub_cycle(0x95, 1);
+        sub_cycle(0x96, 2);
+        sub_cycle(0x97, 1);
+        sub_cycle(0x98, 1);
+        sub_cycle(0x99, 1);
+        sub_cycle(0x9a, 1);
+        sub_cycle(0x9b, 1);
+        sub_cycle(0x9c, 1);
+        sub_cycle(0x9d, 1);
+        sub_cycle(0x9e, 2);
+        sub_cycle(0x9f, 1);
+
+        sub_cycle(0xa0, 1);
+        sub_cycle(0xa1, 1);
+        sub_cycle(0xa2, 1);
+        sub_cycle(0xa3, 1);
+        sub_cycle(0xa4, 1);
+        sub_cycle(0xa5, 1);
+        sub_cycle(0xa6, 2);
+        sub_cycle(0xa7, 1);
+        sub_cycle(0xa8, 1);
+        sub_cycle(0xa9, 1);
+        sub_cycle(0xaa, 1);
+        sub_cycle(0xab, 1);
+        sub_cycle(0xac, 1);
+        sub_cycle(0xad, 1);
+        sub_cycle(0xae, 2);
+        sub_cycle(0xaf, 1);
+
+        sub_cycle(0xb0, 1);
+        sub_cycle(0xb1, 1);
+        sub_cycle(0xb2, 1);
+        sub_cycle(0xb3, 1);
+        sub_cycle(0xb4, 1);
+        sub_cycle(0xb5, 1);
+        sub_cycle(0xb6, 2);
+        sub_cycle(0xb7, 1);
+        sub_cycle(0xb8, 1);
+        sub_cycle(0xb9, 1);
+        sub_cycle(0xba, 1);
+        sub_cycle(0xbb, 1);
+        sub_cycle(0xbc, 1);
+        sub_cycle(0xbd, 1);
+        sub_cycle(0xbe, 2);
+        sub_cycle(0xbf, 1);
+
+        sub_cycle(0xc0, 5);
+        sub_cycle(0xc1, 3);
+        sub_cycle(0xc2, 4);
+        sub_cycle(0xc3, 4);
+        sub_cycle(0xc4, 6);
+        sub_cycle(0xc5, 4);
+        sub_cycle(0xc6, 2);
+        sub_cycle(0xc7, 4);
+        sub_cycle(0xc8, 2);
+        sub_cycle(0xc9, 4);
+        sub_cycle(0xca, 3);
+        sub_cycle(0xcc, 3);
+        sub_cycle(0xcd, 6);
+        sub_cycle(0xce, 2);
+        sub_cycle(0xcf, 4);
+
+        sub_cycle(0xd0, 5);
+        sub_cycle(0xd1, 3);
+        sub_cycle(0xd2, 4);
+        sub_cycle(0xd4, 6);
+        sub_cycle(0xd5, 4);
+        sub_cycle(0xd6, 2);
+        sub_cycle(0xd7, 4);
+        sub_cycle(0xd8, 2);
+        sub_cycle(0xd9, 4);
+        sub_cycle(0xda, 3);
+        sub_cycle(0xdc, 3);
+        sub_cycle(0xde, 2);
+        sub_cycle(0xdf, 4);
+
+        sub_cycle(0xe0, 3);
+        sub_cycle(0xe1, 3);
+        sub_cycle(0xe2, 2);
+        sub_cycle(0xe5, 4);
+        sub_cycle(0xe6, 2);
+        sub_cycle(0xe7, 4);
+        sub_cycle(0xe8, 4);
+        sub_cycle(0xe9, 1);
+        sub_cycle(0xea, 4);
+        sub_cycle(0xee, 2);
+        sub_cycle(0xef, 4);
+
+        sub_cycle(0xf0, 3);
+        sub_cycle(0xf1, 3);
+        sub_cycle(0xf2, 2);
+        sub_cycle(0xf3, 1);
+        sub_cycle(0xf5, 4);
+        sub_cycle(0xf6, 2);
+        sub_cycle(0xf7, 4);
+        sub_cycle(0xf8, 3);
+        sub_cycle(0xf9, 2);
+        sub_cycle(0xfa, 4);
+        sub_cycle(0xfb, 1);
+        sub_cycle(0xfe, 2);
+        sub_cycle(0xff, 4);
+    }
+}
+#[cfg(test)]
+mod dispatch_equivalence {
+    use crate::bus::Bus;
+    use crate::cpu::Cpu;
+    use rand::{Rng, SeedableRng};
+    use rand::rngs::StdRng;
+
+    /// Opcodes with no meaning on real hardware; both dispatchers must panic.
+    const UNDEFINED: [u8; 11] = [0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD];
+
+    impl Cpu {
+        /// The original sequential handler chain, kept as the reference the
+        /// jump-table dispatch is checked against.
+        fn dispatch_via_chain(&mut self, opcode: u8, inst: (u8, u8), bus: &mut Bus) {
+            if !self.load(inst, bus)
+                && !self.alu(inst, bus)
+                && !self.load16(inst, bus)
+                && !self.alu16(inst, bus)
+                && !self.jump(inst, bus)
+                && !self.pop(inst, bus)
+                && !self.misc(inst, bus)
+                && !self.rotate(inst, bus)
+                && !self.reset(inst, bus)
+                && !self.call(inst, bus)
+                && !self.ret(inst, bus)
+                && !self.prefix(inst, bus)
+                && !self.push(inst, bus)
+            {
+                panic!("Not implemented yet {:#02x} at {:#02x}", opcode, self.get_pc())
+            }
+        }
+
+        fn state(&self) -> [usize; 13] {
+            [self.a.get() as usize, self.b.get() as usize, self.c.get() as usize,
+             self.d.get() as usize, self.e.get() as usize, self.f.get() as usize,
+             self.h.get() as usize, self.l.get() as usize, self.sp as usize,
+             self.pc as usize, self.counter, self.ime as usize, self.halted as usize]
+        }
+    }
+
+    /// Builds a CPU and bus in the same pseudo-random state, with `opcode` and
+    /// random operand bytes sitting at PC in WRAM.
+    fn scenario(seed: u64, opcode: u8) -> (Cpu, Bus) {
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(crate::rom::Rom::test());
+
+        cpu.a.set(rng.gen()); cpu.b.set(rng.gen()); cpu.c.set(rng.gen());
+        cpu.d.set(rng.gen()); cpu.e.set(rng.gen()); cpu.h.set(rng.gen());
+        cpu.l.set(rng.gen());
+        cpu.f.set(rng.gen::<u8>() & 0xF0);
+        // Keep SP and HL in WRAM so pushes and (HL) accesses hit real memory.
+        cpu.set_sp(0xD000 + (rng.gen::<u16>() & 0x0FFF));
+        cpu.set_hl(0xC800 + (rng.gen::<u16>() & 0x00FF));
+        cpu.set_ime(rng.gen());
+
+        for addr in 0xC000u16..=0xDFFF {
+            bus.set(addr, rng.gen());
+        }
+        let pc = 0xC100;
+        cpu.set_pc(pc);
+        bus.set(pc, opcode);
+        bus.set(pc + 1, rng.gen());
+        bus.set(pc + 2, rng.gen());
+        (cpu, bus)
+    }
+
+    fn memory_digest(bus: &Bus) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        // 0x8000 up: everything below is cartridge ROM, which is read-only and
+        // not held in RAM.
+        for addr in 0x8000..=0xFFFFu32 {
+            h ^= bus.memory.get(addr as u16) as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        h
+    }
+
+    #[test]
+    fn dispatch_matches_handler_chain() {
+        for op in 0u16..=255 {
+            let opcode = op as u8;
+            if UNDEFINED.contains(&opcode) {
+                continue;
+            }
+            let inst = (opcode >> 4, opcode & 0xF);
+            for seed in 0..8u64 {
+                let (mut cpu_a, mut bus_a) = scenario(seed, opcode);
+                let (mut cpu_b, mut bus_b) = scenario(seed, opcode);
+
+                cpu_a.dispatch_via_chain(opcode, inst, &mut bus_a);
+                cpu_b.dispatch(opcode, inst, &mut bus_b);
+
+                assert_eq!(cpu_a.state(), cpu_b.state(),
+                    "cpu state diverged for opcode {:#04x} seed {}", opcode, seed);
+                assert_eq!(memory_digest(&bus_a), memory_digest(&bus_b),
+                    "memory diverged for opcode {:#04x} seed {}", opcode, seed);
+            }
+        }
+    }
+
+    #[test]
+    fn undefined_opcodes_still_panic() {
+        for opcode in UNDEFINED {
+            let inst = (opcode >> 4, opcode & 0xF);
+            let (mut cpu, mut bus) = scenario(0, opcode);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                cpu.dispatch(opcode, inst, &mut bus)
+            }));
+            assert!(result.is_err(), "opcode {:#04x} should be rejected", opcode);
+        }
     }
 }

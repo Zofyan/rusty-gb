@@ -6,7 +6,6 @@ use crate::ppu::{Ppu};
 use bitfield::Bit;
 use alloc::format;
 use core::fmt::Write;
-use defmt::println;
 use crate::platform;
 use crate::rom::Rom;
 
@@ -126,7 +125,11 @@ impl<I: Input, O: Output> Emulator<I, O> {
             }
             count += 1;
             if count > max_cycles && max_cycles != 0 {
-                println!("Avg FPS: {=f64}", self.fps_total / self.fps_frames as f64);
+                let avg = self.fps_total / self.fps_frames as f64;
+                #[cfg(target_os = "none")]
+                defmt::println!("Avg FPS: {=f64}", avg);
+                #[cfg(not(target_os = "none"))]
+                println!("Avg FPS: {}", avg);
                 break;
             }
             if !self.output.refresh() {

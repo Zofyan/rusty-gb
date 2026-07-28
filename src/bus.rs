@@ -512,3 +512,66 @@ impl Bus {
         self.memory.set(0xFF00, 0x00);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::bus::{Bus};
+
+    #[test]
+    fn rlc() {
+        let mut bus = Bus::new(crate::rom::Rom::test());
+        bus.set(0x8000, 0x80);
+
+        let (z, _, h, c) = bus.rlc(false, false, 0, 0x8000);
+        assert_eq!(z, false);
+        assert_eq!(h, false);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0x8000), 0x01);
+    }
+    #[test]
+    fn sra() {
+        let mut bus = Bus::new(crate::rom::Rom::test());
+        bus.set(0x8000, 0x01);
+
+        let (z, _, h, c) = bus.sra(false, false, 0, 0x8000);
+        assert_eq!(z, true);
+        assert_eq!(h, false);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0x8000), 0x00);
+    }
+    #[test]
+    fn rr() {
+        let mut bus = Bus::new(crate::rom::Rom::test());
+
+        bus.set(0x8000, 0x7C);
+
+        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
+        assert_eq!(c, false);
+        assert_eq!(bus.get(0x8000), 0xBE);
+
+        bus.set(0x8000, 0x3D);
+
+        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0x8000), 0x9E);
+
+        bus.set(0x8000, 0xFF);
+
+        let (_, _, _, c) = bus.rr(false, true, 0, 0x8000);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0x8000), 0xFF);
+
+        bus.set(0x8000, 0x47);
+
+        let (_, _, _, c) = bus.rr(false, false, 0, 0x8000);
+        assert_eq!(c, true);
+        assert_eq!(bus.get(0x8000), 0x23);
+
+    }
+
+    #[test]
+    fn standard() {
+        let mut bus = Bus::new(crate::rom::Rom::test());
+        assert_eq!(bus.get_ly(), 91);
+    }
+}

@@ -1,7 +1,9 @@
 # The RP2350 (Pico 2) is a Cortex-M33: `thumbv8m.main-none-eabihf`.
-# The previous setting lived in Cargo.toml, where Cargo ignores it ("unused
-# manifest key"), and named `thumbv6m-none-eabi`, which is the Cortex-M0+ of
-# the RP2040.
+#
+# These flags apply only when that target is selected explicitly:
+#
+#     cargo build --target thumbv8m.main-none-eabihf --profile embedded
+#     cargo run   --target thumbv8m.main-none-eabihf --profile embedded
 [target.thumbv8m.main-none-eabihf]
 runner = "picotool load -u -v -x -t elf"
 rustflags = [
@@ -12,9 +14,8 @@ rustflags = [
     "-C", "link-arg=-Tlink.x",
 ]
 
-# This crate is `no_std`/`no_main` and depends on rp235x-hal and cortex-m, none
-# of which build for the host, so a bare `cargo build` has nothing sensible to
-# target. Making the Pico 2 the default means `cargo build` and `cargo run`
-# work without `--target`.
-[build]
-target = "thumbv8m.main-none-eabihf"
+# There is deliberately no `[build] target` key. Defaulting the whole workspace
+# to the Pico was what forced `dmg` and `dmg-pico` apart in the first place: it
+# makes a bare `cargo build` -- and therefore `cargo test` -- impossible to run,
+# because the test harness needs std. The host is the default so the test suite
+# is always one command away; the Pico is one `--target` away.

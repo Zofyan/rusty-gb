@@ -1,10 +1,14 @@
 pub mod dummy;
-// Host-only backends. They are kept in the tree so `dmg` and `dmg-pico` do not
-// diverge again, but they pull in winit/pixels/macroquad and cannot build for
-// `thumbv8m`, so only `dummy` is compiled here.
-//pub mod lcd;
-//pub mod lcdd;
-//pub mod terminal;
+/// Software framebuffer. Needs only `alloc`, so it builds for both targets.
+pub mod lcdd;
+
+// Host-only backends: `lcd` pulls in winit/pixels and `terminal` pulls in
+// ratatui/colored, none of which build for `thumbv8m`. Gated rather than
+// commented out so that `cargo check` on the host still covers them.
+#[cfg(not(target_os = "none"))]
+pub mod lcd;
+#[cfg(not(target_os = "none"))]
+pub mod terminal;
 
 use alloc::string::String;
 

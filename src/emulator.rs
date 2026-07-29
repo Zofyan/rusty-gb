@@ -12,6 +12,11 @@ use crate::rom::Rom;
 /// Interrupt vectors, indexed by IF/IE bit: vblank, LCD, timer, serial, joypad.
 const INT_VECTORS: [u16; 5] = [0x40, 0x48, 0x50, 0x58, 0x60];
 
+/// Frames between live FPS reports. At playable speed this is about one line a
+/// second, which a 12 Mbit CDC port carries without the write path ever
+/// becoming a factor in the measurement.
+const FPS_REPORT_INTERVAL: u32 = 60;
+
 pub struct Emulator<I: Input, O: Output> {
     cpu: Cpu,
     bus: Bus,
@@ -125,11 +130,7 @@ impl<I: Input, O: Output> Emulator<I, O> {
             }
             count += 1;
             if count > max_cycles && max_cycles != 0 {
-                let avg = self.fps_total / self.fps_frames as f64;
-                #[cfg(target_os = "none")]
-                defmt::println!("Avg FPS: {=f64}", avg);
-                #[cfg(not(target_os = "none"))]
-                println!("Avg FPS: {}", avg);
+                let _ = writeln!(stdout, "Avg FPS: {}", self.fps_total / self.fps_frames as f64);
                 break;
             }
             if !self.output.refresh() {
@@ -143,6 +144,14 @@ impl<I: Input, O: Output> Emulator<I, O> {
             self.fps_frames += 1;
             if time < 1_000_000.0 / 60.0 {
                 //sleep(Duration::from_micros((1_000_000.0 / 60.0 - time) as u64))
+            }
+            // Live readout, into the same sink the Game Boy's serial port uses:
+            // stdout on the host, USB CDC on the Pico. On a board with no
+            // display and no debug probe that port is the only way out, so the
+            // two streams deliberately share it.
+            if self.fps_frames % FPS_REPORT_INTERVAL == 0 {
+                let avg = self.fps_total / self.fps_frames as f64;
+                let _ = writeln!(stdout, "FPS: {time:.1} (avg {avg:.1})");
             }
             self.output.set_diagnostics(format!("FPS: {}", time));
         }

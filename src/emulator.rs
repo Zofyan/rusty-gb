@@ -12,10 +12,16 @@ use crate::rom::Rom;
 /// Interrupt vectors, indexed by IF/IE bit: vblank, LCD, timer, serial, joypad.
 const INT_VECTORS: [u16; 5] = [0x40, 0x48, 0x50, 0x58, 0x60];
 
-/// Frames between live FPS reports. At playable speed this is about one line a
-/// second, which a 12 Mbit CDC port carries without the write path ever
-/// becoming a factor in the measurement.
-const FPS_REPORT_INTERVAL: u32 = 60;
+/// Frames between live FPS reports.
+///
+/// The cost is not the serial port: at playable speed this is a few lines a
+/// second against a bulk endpoint good for tens of KB/s. It is the two `{:.1}`
+/// conversions, and `f64` is soft-float on the M33 (its FPU is
+/// single-precision), so `flt2dec` is the expensive part. Even so this stays
+/// well under the full-precision `format!` that `set_diagnostics` below already
+/// pays on *every* frame, so lowering it further costs less than that one line
+/// does.
+const FPS_REPORT_INTERVAL: u32 = 15;
 
 pub struct Emulator<I: Input, O: Output> {
     cpu: Cpu,
@@ -68,8 +74,16 @@ impl<I: Input, O: Output> Emulator<I, O> {
     /// QSPI transaction on every miss. `.data.*` is collected into `.data`,
     /// which cortex-m-rt copies to RAM at startup. Cold code (the mappers, the
     /// RTC) is deliberately left in flash so it does not consume SRAM.
+    ///
+    /// `serial` receives the Game Boy's serial port verbatim and nothing else.
+    /// Diagnostics go to `diag` instead, because they are emitted between frames
+    /// while the ROM writes SB a byte at a time: sharing one sink let an FPS
+    /// line land mid-token and split a test ROM's "Passed" in half. The two may
+    /// still be the same underlying device -- on the Pico they are both the CDC
+    /// port -- but they are separate sinks so a consumer that parses `serial`
+    /// sees a clean stream.
     #[cfg_attr(target_os = "none", link_section = ".data.ram_func")]
-    pub fn run(&mut self, max_cycles: usize, stdout: &mut dyn Write) {
+    pub fn run(&mut self, max_cycles: usize, serial: &mut dyn Write, diag: &mut dyn Write) {
         let mut count: usize = 0;
         let mut timer: u64 = 0;
         loop {
@@ -124,13 +138,13 @@ impl<I: Input, O: Output> Emulator<I, O> {
                 if self.bus.registers.sc == 0x81 {
                     // `core::fmt::Write` has no `flush`; the serial sink in
                     // `main` writes through, so there is nothing to drain.
-                    write!(stdout, "{}", self.bus.registers.sb as char).expect("Couldn't write");
+                    write!(serial, "{}", self.bus.registers.sb as char).expect("Couldn't write");
                     self.bus.registers.sc = 0;
                 }
             }
             count += 1;
             if count > max_cycles && max_cycles != 0 {
-                let _ = writeln!(stdout, "Avg FPS: {}", self.fps_total / self.fps_frames as f64);
+                let _ = writeln!(diag, "Avg FPS: {}", self.fps_total / self.fps_frames as f64);
                 break;
             }
             if !self.output.refresh() {
@@ -145,13 +159,11 @@ impl<I: Input, O: Output> Emulator<I, O> {
             if time < 1_000_000.0 / 60.0 {
                 //sleep(Duration::from_micros((1_000_000.0 / 60.0 - time) as u64))
             }
-            // Live readout, into the same sink the Game Boy's serial port uses:
-            // stdout on the host, USB CDC on the Pico. On a board with no
-            // display and no debug probe that port is the only way out, so the
-            // two streams deliberately share it.
+            // Live readout. Emitted between frames, so it cannot interrupt a
+            // partially written line of the ROM's own serial output.
             if self.fps_frames % FPS_REPORT_INTERVAL == 0 {
                 let avg = self.fps_total / self.fps_frames as f64;
-                let _ = writeln!(stdout, "FPS: {time:.1} (avg {avg:.1})");
+                let _ = writeln!(diag, "FPS: {time:.1} (avg {avg:.1})");
             }
             self.output.set_diagnostics(format!("FPS: {}", time));
         }

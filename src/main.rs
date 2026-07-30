@@ -100,8 +100,15 @@ mod pico {
         let output = crate::output::dummy::Dummy::new();
         let input = crate::input::Dummy::new();
 
+        // Both sinks are the one CDC port -- `Serial` is a unit struct, so these
+        // are two handles to the same device, kept separate only so the Game
+        // Boy's serial stream is not interleaved mid-token with diagnostics.
         let mut emu = Emulator::new(Rom::mapped(ROM_IMAGE), input, output);
-        emu.run(60 * 10, &mut crate::usb_serial::Serial);
+        emu.run(
+            60 * 10,
+            &mut crate::usb_serial::Serial,
+            &mut crate::usb_serial::Serial,
+        );
 
         // The USB interrupt keeps running, so the port stays open and the final
         // averages remain readable after the run ends.
@@ -147,7 +154,7 @@ fn main() {
     let input = input::Dummy::new();
 
     let mut emu = Emulator::new(game, input, output);
-    emu.run(60 * 200, &mut Stdout);
+    emu.run(60 * 2000, &mut Stdout, &mut Stdout);
 
     println!("The max amount that was used {}", PEAK_ALLOC.peak_usage_as_kb());
 }
@@ -163,6 +170,10 @@ mod tests {
     /// Blargg's cpu_instrs suite. Each ROM reports through the serial port,
     /// which `Emulator::run` drains into the sink passed to it -- so the pass
     /// condition is just what turns up in that string.
+    ///
+    /// Diagnostics go to a separate sink that is thrown away: they are emitted
+    /// between frames, and sharing the serial sink let an FPS line land between
+    /// the "P" and "assed" of a ROM's own output.
     ///
     /// One test per ROM rather than a loop, so a regression names the failing
     /// ROM directly.
@@ -182,7 +193,7 @@ mod tests {
                 );
 
                 let mut serial = String::new();
-                emu.run(600, &mut serial);
+                emu.run(600, &mut serial, &mut String::new());
 
                 assert!(serial.contains("Passed"), "no pass in output: {serial:?}");
                 assert!(!serial.contains("Failed"), "failure in output: {serial:?}");

@@ -12,7 +12,6 @@ pub struct OAM {
     y: u8,
     x: u8,
     tile_index: u8,
-    tile_index_last: u8,
     palette: bool,
     flip_x: bool,
     flip_y: bool,
@@ -58,7 +57,6 @@ impl OAM {
             y: 0xDF,
             x: 0xDF,
             tile_index: 0,
-            tile_index_last: 1,
             palette: true,
             flip_x: true,
             flip_y: true,
@@ -75,7 +73,6 @@ impl Clone for OAM {
             y: 0,
             x: 0,
             tile_index: 0,
-            tile_index_last: 1,
             palette: false,
             flip_x: false,
             flip_y: false,
@@ -244,31 +241,40 @@ impl Ppu {
             {
                 //oam.x = oam.x.saturating_sub(8);
 
-                if bus.oams[i].tile_index != bus.oams[i].tile_index_last {
-                    let mut offset = 0x8000;
-                    let obj_size = bus.get_ldlc_obj_size();
-                    if obj_size {
-                        if bus.oams[i].flip_y {
-                            offset += ((bus.oams[i].tile_index | 0x01) as u16) * 0x10;
-                        } else {
-                            offset += ((bus.oams[i].tile_index & 0xFE) as u16) * 0x10;
-                        }
-                    } else {
-                        offset += (bus.oams[i].tile_index as u16) * 0x10;
-                    }
-
-                    let mut addr = offset;
+                // Refetched on every scanline, and deliberately not cached.
+                //
+                // `data` is one row of the sprite, and which row depends on LY,
+                // so a per-sprite cache key cannot describe it. Guarding this on
+                // `tile_index` alone meant a sprite kept whatever row was fetched
+                // on the first line it appeared on and repeated it down all 8 (or
+                // 16) of its lines, smearing every sprite vertically. The key
+                // could be widened to the computed address, but that changes on
+                // every line too, so the hit rate would be zero.
+                //
+                // The decode below is still hoisted out of the per-pixel path,
+                // which is where the win in doing this once per line actually is.
+                let mut offset = 0x8000;
+                let obj_size = bus.get_ldlc_obj_size();
+                if obj_size {
                     if bus.oams[i].flip_y {
-                        addr += ((8 - (bus.get_ly() + 16 - bus.oams[i].y)) * 2) as u16;
+                        offset += ((bus.oams[i].tile_index | 0x01) as u16) * 0x10;
                     } else {
-                        addr += ((bus.get_ly() + 16 - bus.oams[i].y) * 2) as u16;
+                        offset += ((bus.oams[i].tile_index & 0xFE) as u16) * 0x10;
                     }
-
-                    let tmp1 = bus.memory.get(addr);
-                    let tmp2 = bus.memory.get(addr + 1);
-                    bus.oams[i].data = decode_row(tmp1, tmp2);
-                    bus.oams[i].tile_index_last = bus.oams[i].tile_index;
+                } else {
+                    offset += (bus.oams[i].tile_index as u16) * 0x10;
                 }
+
+                let mut addr = offset;
+                if bus.oams[i].flip_y {
+                    addr += ((8 - (bus.get_ly() + 16 - bus.oams[i].y)) * 2) as u16;
+                } else {
+                    addr += ((bus.get_ly() + 16 - bus.oams[i].y) * 2) as u16;
+                }
+
+                let tmp1 = bus.memory.get(addr);
+                let tmp2 = bus.memory.get(addr + 1);
+                bus.oams[i].data = decode_row(tmp1, tmp2);
                 self.oambuffer[self.oambuffer_len] = i as u8;
                 self.oambuffer_len += 1;
 
@@ -479,5 +485,63 @@ impl Ppu {
             bus.reset(false, false, 2, 0xFF41);
         }
         i
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bus::Bus;
+    use crate::fetcher::decode_row;
+    use crate::ppu::Ppu;
+    use crate::rom::Rom;
+
+    /// A sprite's `data` is one row, selected by LY, so it has to be refetched on
+    /// every scanline the sprite covers.
+    ///
+    /// Regression test for an OAM cache keyed on `tile_index` alone: a sprite
+    /// keeps the same tile across all eight of its lines, so the guard hit on
+    /// lines 1-7 and replayed the row fetched for line 0, smearing every sprite
+    /// vertically. Nothing in the blargg cpu_instrs suite looks at the PPU, so
+    /// this went unnoticed.
+    #[test]
+    fn sprite_row_follows_scanline() {
+        /// An OAM y of 16 puts the sprite's first row on LY 0.
+        const SPRITE_TOP: u8 = 16;
+
+        let mut bus = Bus::new(Rom::test());
+
+        // LCDC 0: 8x8 sprites, and both tilemaps at 0x9800.
+        bus.set(0xFF40, 0x00);
+        // WY 0, so the window row arithmetic in `oam_fetch` cannot underflow.
+        bus.memory.set(0xFF4A, 0);
+
+        // Tile 0 with every row distinct: row r sets bit r of the low plane.
+        for row in 0..8u8 {
+            bus.memory.set(0x8000 + row as u16 * 2, 1u8 << row);
+            bus.memory.set(0x8000 + row as u16 * 2 + 1, 0);
+        }
+
+        let sprite = &mut bus.oams[0];
+        sprite.y = SPRITE_TOP;
+        sprite.x = 8;
+        sprite.tile_index = 0;
+        sprite.flip_x = false;
+        sprite.flip_y = false;
+        sprite.priority = false;
+        sprite.palette = false;
+
+        for ly in 0..8u8 {
+            // A fresh Ppu per line, so the tick accounting `oam_fetch` expects is
+            // in its post-`new` state and the scan actually runs.
+            let mut ppu = Ppu::new();
+            bus.set_ly(ly);
+            ppu.oam_fetch(&mut bus, 20);
+
+            assert_eq!(
+                bus.oams[0].data,
+                decode_row(1u8 << ly, 0),
+                "LY {ly} used the wrong sprite row"
+            );
+        }
     }
 }

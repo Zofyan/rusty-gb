@@ -43,7 +43,8 @@ cargo run   --target thumbv8m.main-none-eabihf --profile embedded  # flashes via
 ```
 
 `cargo run` for the Pico uses `picotool`, which needs the board in BOOTSEL
-mode — hold BOOTSEL while plugging it in.
+mode. Either hold BOOTSEL while plugging it in, or — once firmware with the
+1200 baud reset is on the board — let the host ask for it (see below).
 
 The split is on `target_os = "none"`: the Pico target reports `none`, hosts
 report macos/linux/windows, so neither build needs a remembered `--features`
@@ -88,3 +89,34 @@ as disappointing FPS.
 The Game Boy's own serial port goes to the same physical port but a separate
 sink, so a parser reading cartridge output never sees an FPS line spliced into
 it.
+
+## Flashing without the BOOTSEL button
+
+The firmware watches the CDC port for the 1200 baud touch — open the port at
+1200 baud with DTR low and it reboots into BOOTSEL — so the host can put the
+board into flashing mode itself. `picotool` then loads over the same cable, and
+the terminal comes back on its own.
+
+On Windows, `tools/flash.ps1` does the whole loop:
+
+```powershell
+.\tools\flash.ps1              # build, reset, flash, attach
+.\tools\flash.ps1 -MonitorOnly # attach to a board that is already running
+.\tools\flash.ps1 -NoBuild     # flash what is already in target/
+.\tools\flash.ps1 -Reset       # just drop into BOOTSEL, then exit
+```
+
+It finds the board by USB VID/PID (`2E8A:000A`), so no COM port has to be
+remembered; pass `-Port COM5` if two boards are plugged in. It needs `picotool`
+on `PATH` — except under `-MonitorOnly`, which needs nothing but the port.
+Ctrl-C detaches the monitor and leaves the board running.
+
+The same trick from a Unix shell, if you are not on Windows:
+
+```sh
+stty -f /dev/tty.usbmodem101 1200      # macOS; stty -F /dev/ttyACM0 1200 on Linux
+cargo run --target thumbv8m.main-none-eabihf --profile embedded
+```
+
+A board whose firmware predates this still needs the button held at plug-in —
+including the first flash after checking this out.

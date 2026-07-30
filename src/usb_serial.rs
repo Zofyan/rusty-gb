@@ -13,6 +13,12 @@
 //! there would make enumeration unreliable at best. Servicing `USBCTRL_IRQ`
 //! instead decouples USB timing from the emulator entirely: the frame loop
 //! never has to care, and the port stays alive even after `run` returns.
+//!
+//! # Rebooting into BOOTSEL from the host
+//!
+//! The same interrupt watches for the Arduino-style 1200 baud touch (see
+//! [`BOOTSEL_TOUCH_BAUD`]), which is what lets a host flash the board without
+//! anyone reaching for the BOOTSEL button. `tools/flash.ps1` drives it.
 
 use alloc::boxed::Box;
 use core::cell::RefCell;
@@ -35,6 +41,17 @@ const VID_PID: UsbVidPid = UsbVidPid(0x2e8a, 0x000a);
 /// How long [`wait_for_host`] gives a terminal to attach.
 const ATTACH_TIMEOUT_US: u64 = 10_000_000;
 
+/// Opening the port at this baud and then dropping DTR reboots the board into
+/// BOOTSEL.
+///
+/// The convention comes from Arduino and every RP2040/RP2350 toolchain that
+/// followed it, which is the point: it needs no client beyond something that
+/// can open a serial port, so `picotool` can flash a board that is face down in
+/// a case. Nothing else here reads the line coding -- CDC over USB has no wire
+/// to be slow -- so the value is free to be a sentinel, and 1200 baud is the
+/// one hosts already know to use.
+const BOOTSEL_TOUCH_BAUD: u32 = 1200;
+
 struct Usb {
     dev: UsbDevice<'static, Bus>,
     port: SerialPort<'static, Bus>,
@@ -52,6 +69,17 @@ impl Usb {
     /// open.
     fn ready(&self) -> bool {
         self.dev.state() == UsbDeviceState::Configured && self.port.dtr()
+    }
+
+    /// The host has asked for BOOTSEL by opening at [`BOOTSEL_TOUCH_BAUD`] and
+    /// closing again.
+    ///
+    /// Both halves are required. DTR alone is every terminal attaching, and the
+    /// baud alone is a host that has set the line coding but not yet let go, so
+    /// rebooting on either one on its own would fire while a flashing tool
+    /// still had the port open.
+    fn bootsel_requested(&self) -> bool {
+        self.port.line_coding().data_rate() == BOOTSEL_TOUCH_BAUD && !self.port.dtr()
     }
 }
 
@@ -170,9 +198,28 @@ impl fmt::Write for Serial {
 
 #[interrupt]
 fn USBCTRL_IRQ() {
-    critical_section::with(|cs| {
-        if let Some(usb) = USB.borrow(cs).borrow_mut().as_mut() {
-            usb.poll();
-        }
+    let reboot = critical_section::with(|cs| {
+        let mut guard = USB.borrow(cs).borrow_mut();
+        let Some(usb) = guard.as_mut() else {
+            return false;
+        };
+        usb.poll();
+        usb.bootsel_requested()
     });
+
+    // Outside the critical section and outside the borrow: `reboot` never
+    // returns, so anything still held here would be held forever -- and the ROM
+    // call it makes has no business running with interrupts masked.
+    if reboot {
+        hal::reboot::reboot(
+            // Leave both interfaces up. Disabling either only narrows what the
+            // host can do with the board it just rebooted, and the mass storage
+            // one is the fallback when picotool cannot see it.
+            hal::reboot::RebootKind::BootSel {
+                picoboot_disabled: false,
+                msd_disabled: false,
+            },
+            hal::reboot::RebootArch::Normal,
+        );
+    }
 }

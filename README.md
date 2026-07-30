@@ -49,6 +49,24 @@ The split is on `target_os = "none"`: the Pico target reports `none`, hosts
 report macos/linux/windows, so neither build needs a remembered `--features`
 to be correct.
 
+### The Pico runs at 300 MHz
+
+`src/clocks.rs` replaces `hal::clocks::init_clocks_and_plls`, which brings the
+RP2350 up at its specified 150 MHz, with the same sequence at double that. The
+emulator is CPU-bound on this board — about 30 fps at stock — so the frame rate
+follows the clock, though short of a clean 2×: the flash divisor is scaled with
+the clock (below), so XIP cache misses cost the same wall-clock time they did
+before while everything else halves.
+
+Three things move, in this order: core voltage to 1.15 V, then the QSPI flash
+divisor, then the PLL. `SYS_MHZ` in that file is the only knob — set it back to
+`150` and the PLL config and flash divisor follow, putting the board at stock.
+
+**300 MHz is out of spec.** Raspberry Pi specify 150 MHz at 1.10 V. Silicon
+varies, and a part that will not hold this shows it as a hang or a corrupted
+frame, not as an error message. If that happens, try 1.20 V (`VSEL` `0b01101`)
+before suspecting anything else, and drop `SYS_MHZ` if it persists.
+
 ## Talking to the Pico
 
 Diagnostics go out over **USB CDC**, not defmt/RTT, so reading them needs no
@@ -62,6 +80,10 @@ screen /dev/tty.usbmodem101      # baud is ignored for CDC; exit with Ctrl-A K
 You get a live FPS line every 15 frames plus a final average. The emulator
 waits up to 10 seconds for a terminal to open the port before starting, so
 nothing is lost off the top, and still boots unattended if nothing attaches.
+
+The first line out of the port is the system clock the PLL actually locked to,
+so an overclock that silently fell back is visible immediately rather than only
+as disappointing FPS.
 
 The Game Boy's own serial port goes to the same physical port but a separate
 sink, so a parser reading cartridge output never sees an FPS line spliced into

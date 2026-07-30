@@ -13,6 +13,8 @@
 extern crate alloc;
 
 mod bus;
+#[cfg(target_os = "none")]
+mod clocks;
 mod cpu;
 mod emulator;
 mod fetcher;
@@ -80,12 +82,18 @@ mod pico {
         // TIMER0 is deliberately not claimed here: `platform::micros` reads its
         // free-running counter without taking ownership, so the emulator core
         // needs no HAL handle threaded through it.
-        let clocks = hal::clocks::init_clocks_and_plls(
-            XTAL_FREQ_HZ,
+        //
+        // `clocks::init` stands in for `hal::clocks::init_clocks_and_plls`,
+        // which brings the part up at its nominal 150 MHz. This is the same
+        // sequence with the core voltage and the flash divisor moved first, so
+        // that clk_sys can land at `clocks::SYS_MHZ` instead.
+        let clocks = crate::clocks::init(
             pac.XOSC,
             pac.CLOCKS,
             pac.PLL_SYS,
             pac.PLL_USB,
+            pac.POWMAN,
+            pac.QMI,
             &mut pac.RESETS,
             &mut watchdog,
         )
@@ -96,6 +104,18 @@ mod pico {
         // itself off USBCTRL_IRQ.
         crate::usb_serial::init(pac.USB, pac.USB_DPRAM, clocks.usb_clock, &mut pac.RESETS);
         crate::usb_serial::wait_for_host();
+
+        // Read back rather than printed from a constant: this is the frequency
+        // the PLL actually locked to, so an overclock that silently fell back
+        // is visible in the first line out of the port rather than only as
+        // disappointing FPS.
+        use core::fmt::Write as _;
+        use hal::Clock as _;
+        let _ = writeln!(
+            crate::usb_serial::Serial,
+            "rusty-gb: clk_sys {} MHz",
+            clocks.system_clock.freq().to_MHz()
+        );
 
         let output = crate::output::dummy::Dummy::new();
         let input = crate::input::Dummy::new();

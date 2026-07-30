@@ -12,16 +12,29 @@ use crate::rom::Rom;
 /// Interrupt vectors, indexed by IF/IE bit: vblank, LCD, timer, serial, joypad.
 const INT_VECTORS: [u16; 5] = [0x40, 0x48, 0x50, 0x58, 0x60];
 
-/// Frames between live FPS reports.
-///
-/// The cost is not the serial port: at playable speed this is a few lines a
-/// second against a bulk endpoint good for tens of KB/s. It is the two `{:.1}`
-/// conversions, and `f64` is soft-float on the M33 (its FPU is
-/// single-precision), so `flt2dec` is the expensive part. Even so this stays
-/// well under the full-precision `format!` that `set_diagnostics` below already
-/// pays on *every* frame, so lowering it further costs less than that one line
-/// does.
+/// Frames between live FPS reports. Cheap enough to lower further: the port
+/// carries a few lines a second against an endpoint good for tens of KB/s, and
+/// the arithmetic below is integer.
 const FPS_REPORT_INTERVAL: u32 = 15;
+
+/// Microseconds a frame gets at the Game Boy's ~59.7 Hz.
+const FRAME_BUDGET_US: u64 = 1_000_000 / 60;
+
+/// Frame rate in tenths of a frame per second: `frames` frames spanning `us`
+/// microseconds.
+///
+/// Integer throughout. `f64` is soft-float on the M33 -- its FPU is
+/// single-precision -- and formatting one drags in `flt2dec`'s Grisu and Dragon
+/// tables, which is a lot of flash for a diagnostic. Tenths give one decimal
+/// place, which is all the readout ever showed.
+///
+/// Rounded rather than truncated: a frame that takes exactly its 16667 us budget
+/// floors to 599 tenths, which would report a steady 60 fps as "59.9".
+#[inline]
+fn fps_tenths(frames: u64, us: u64) -> u64 {
+    let us = us.max(1);
+    (frames * 10_000_000 + us / 2) / us
+}
 
 pub struct Emulator<I: Input, O: Output> {
     cpu: Cpu,
@@ -29,10 +42,17 @@ pub struct Emulator<I: Input, O: Output> {
     ppu: Ppu,
     output: O,
     input: I,
-    /// Running FPS total. Kept as a sum rather than a Vec of per-frame samples:
-    /// the Vec grew unbounded (~96 KB over a 12000-frame run) for no benefit.
-    fps_total: f64,
-    fps_frames: u32,
+    /// Elapsed time across `frames`, in microseconds.
+    ///
+    /// Accumulating time rather than a sum of per-frame rates is both cheaper --
+    /// two integer adds per frame, no division until a report is due -- and more
+    /// correct: the mean of per-frame rates is not the average frame rate, and
+    /// the old sum-of-rates skewed the average towards the fastest frames.
+    ///
+    /// Kept as a running total rather than a Vec of per-frame samples: the Vec
+    /// grew unbounded (~96 KB over a 12000-frame run) for no benefit.
+    micros_total: u64,
+    frames: u32,
 }
 
 impl<I: Input, O: Output> Emulator<I, O> {
@@ -62,8 +82,8 @@ impl<I: Input, O: Output> Emulator<I, O> {
             ppu,
             output,
             input,
-            fps_total: 0.0,
-            fps_frames: 0,
+            micros_total: 0,
+            frames: 0,
         }
     }
 
@@ -144,28 +164,64 @@ impl<I: Input, O: Output> Emulator<I, O> {
             }
             count += 1;
             if count > max_cycles && max_cycles != 0 {
-                let _ = writeln!(diag, "Avg FPS: {}", self.fps_total / self.fps_frames as f64);
+                let avg = fps_tenths(self.frames as u64, self.micros_total);
+                let _ = writeln!(diag, "Avg FPS: {}.{}", avg / 10, avg % 10);
                 break;
             }
             if !self.output.refresh() {
                 break;
             }
 
-            let diff = platform::micros() - millis;
+            // `max(1)` guards the division below: a frame can finish inside one
+            // tick of the microsecond counter.
+            let diff = (platform::micros() - millis).max(1);
+            self.micros_total += diff;
+            self.frames += 1;
 
-            let time = 1_000_000.0 / diff as f64;
-            self.fps_total += time;
-            self.fps_frames += 1;
-            if time < 1_000_000.0 / 60.0 {
-                //sleep(Duration::from_micros((1_000_000.0 / 60.0 - time) as u64))
+            if diff < FRAME_BUDGET_US {
+                //sleep(Duration::from_micros(FRAME_BUDGET_US - diff))
             }
+
+            let inst = fps_tenths(1, diff);
+
             // Live readout. Emitted between frames, so it cannot interrupt a
             // partially written line of the ROM's own serial output.
-            if self.fps_frames % FPS_REPORT_INTERVAL == 0 {
-                let avg = self.fps_total / self.fps_frames as f64;
-                let _ = writeln!(diag, "FPS: {time:.1} (avg {avg:.1})");
+            if self.frames % FPS_REPORT_INTERVAL == 0 {
+                let avg = fps_tenths(self.frames as u64, self.micros_total);
+                let _ = writeln!(
+                    diag,
+                    "FPS: {}.{} (avg {}.{})",
+                    inst / 10,
+                    inst % 10,
+                    avg / 10,
+                    avg % 10
+                );
             }
-            self.output.set_diagnostics(format!("FPS: {}", time));
+            self.output.set_diagnostics(format!("FPS: {}.{}", inst / 10, inst % 10));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fps_tenths, FRAME_BUDGET_US};
+
+    #[test]
+    fn fps_tenths_reports_one_decimal_place() {
+        // A frame that lands exactly on budget is 60.0, not 59.9.
+        assert_eq!(fps_tenths(1, FRAME_BUDGET_US), 600);
+        // Half a budget is double the rate.
+        assert_eq!(fps_tenths(1, FRAME_BUDGET_US / 2), 1200);
+        // An average is frames over total time, not a mean of rates.
+        assert_eq!(fps_tenths(90, 3_000_000), 300);
+        assert_eq!(fps_tenths(1, 400_000), 25);
+    }
+
+    /// A frame can complete inside one tick of the microsecond counter, and the
+    /// caller clamps to 1; `fps_tenths` must not divide by zero even if it does
+    /// not.
+    #[test]
+    fn fps_tenths_survives_a_zero_interval() {
+        assert_eq!(fps_tenths(1, 0), 10_000_000);
     }
 }

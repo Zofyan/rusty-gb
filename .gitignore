@@ -18,4 +18,11 @@ check.py
 Cargo.lock
 flamegraph.svg
 src/.DS_Store
-test-roms/Tetris.gb
+
+# Commercial cartridge dumps. Supply your own -- see README.md.
+#
+# One level only, so the freely redistributable blargg suite under
+# test-roms/gb-test-roms-master/ stays tracked; that is what the test suite
+# actually needs.
+test-roms/*.gb
+test-roms/*.gbc

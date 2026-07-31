@@ -3,6 +3,23 @@ name = "rusty-gb"
 version = "0.1.0"
 edition = "2021"
 
+# `cargo bench` runs every target that opts into benchmarking, not just the
+# `[[bench]]` one. The lib and the bin have no benchmarks in them, but they are
+# still built against libtest and run with whatever follows `--` -- so
+# `cargo bench -- --save main` reached libtest first and died on "Unrecognized
+# option: 'save'" before the real benchmark was ever started. Opting them out
+# leaves `benches/throughput.rs` as the only thing `cargo bench` runs, which is
+# what the flags in its `--help` were written for.
+#
+# This has no effect on `cargo test`; both targets still run their tests.
+[lib]
+bench = false
+
+[[bin]]
+name = "rusty-gb"
+path = "src/main.rs"
+bench = false
+
 # Shared by every target. The emulator core (cpu, bus, ppu, fetcher, mbc,
 # memory, rom) depends on nothing beyond these two plus `alloc`.
 [dependencies]

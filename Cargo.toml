@@ -43,6 +43,14 @@ usbd-serial = "0.2.2"
 [dev-dependencies]
 rand = "0.9.0-alpha.1"
 
+# Hand-rolled: `cargo bench`'s own harness is nightly-only, and what the
+# throughput benchmark needs -- fixed emulated work, best-of-N, a saved
+# baseline -- is shorter than a statistics dependency would be. Host-only in
+# practice; `cargo bench` does not run for the Pico target.
+[[bench]]
+name = "throughput"
+harness = false
+
 [profile.dev]
 overflow-checks = true
 

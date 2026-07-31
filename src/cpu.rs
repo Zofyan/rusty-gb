@@ -1,6 +1,27 @@
 use crate::bus::{Bus, INT_ENABLE, INT_REQUEST};
 use crate::register::Register;
 
+/// A copy of the register file at one instant.
+///
+/// The registers themselves stay private -- they are [`Register`]s, which carry
+/// the flag helpers, and nothing outside the CPU should be reaching for those.
+/// What a debugger or a test ROM harness wants is a flat snapshot it can
+/// compare against, which is this. Mooneye's test ROMs in particular signal
+/// their result purely through B/C/D/E/H/L at a breakpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Regs {
+    pub a: u8,
+    pub f: u8,
+    pub b: u8,
+    pub c: u8,
+    pub d: u8,
+    pub e: u8,
+    pub h: u8,
+    pub l: u8,
+    pub sp: u16,
+    pub pc: u16,
+}
+
 pub struct Cpu {
     a: Register,
     b: Register,
@@ -162,6 +183,22 @@ impl Cpu {
     fn set_flag_z(&mut self, value: bool) {
         self.f.set_bit(7, value)
     }
+    /// Snapshots the register file. See [`Regs`].
+    pub fn regs(&self) -> Regs {
+        Regs {
+            a: self.a.get(),
+            f: self.f.get(),
+            b: self.b.get(),
+            c: self.c.get(),
+            d: self.d.get(),
+            e: self.e.get(),
+            h: self.h.get(),
+            l: self.l.get(),
+            sp: self.sp,
+            pc: self.pc,
+        }
+    }
+
     fn get_af(&self) -> u16 {
         ((self.a.get() as u16) << 8) | self.f.get() as u16
     }
@@ -234,6 +271,11 @@ impl Cpu {
     }
     pub fn set_ime(&mut self, value: bool) {
         self.ime = value
+    }
+    /// Whether interrupts are enabled, without the `&mut` [`Cpu::get_ime`]
+    /// wants. For inspecting a stopped machine.
+    pub fn ime(&self) -> bool {
+        self.ime
     }
     pub fn get_ime(&mut self) -> bool {
         self.ime
@@ -1370,7 +1412,7 @@ mod dispatch_equivalence {
 
     /// Builds a CPU and bus in the same pseudo-random state, with `opcode` and
     /// random operand bytes sitting at PC in WRAM.
-    fn scenario(seed: u64, opcode: u8) -> (Cpu, Bus) {
+    pub(super) fn scenario(seed: u64, opcode: u8) -> (Cpu, Bus) {
         let mut rng = StdRng::seed_from_u64(seed);
         let mut cpu = Cpu::new();
         let mut bus = Bus::new(crate::rom::Rom::test());
@@ -1439,5 +1481,152 @@ mod dispatch_equivalence {
             }));
             assert!(result.is_err(), "opcode {:#04x} should be rejected", opcode);
         }
+    }
+}
+
+/// Instruction timing, checked against the DMG's published cycle counts.
+///
+/// Everything mooneye's `acceptance/` suite measures rests on these numbers, so
+/// a wrong one here shows up there as a dozen unexplained failures. Checking
+/// them directly turns that into one test that names the opcode.
+///
+/// Costs are M-cycles, the unit [`Cpu::step`] returns and the unit DIV and TIMA
+/// are derived from.
+#[cfg(all(test, not(target_os = "none")))]
+mod timing {
+    use super::dispatch_equivalence::scenario;
+    use alloc::vec::Vec;
+
+    /// What one opcode may cost.
+    ///
+    /// Conditional branches have two costs and the emulator has to produce the
+    /// right one for the flags it is given, so those carry both and are checked
+    /// twice over: every observation must be one of the two, and across enough
+    /// random flag states both must actually turn up. A branch that always took
+    /// the fast path would satisfy the first check on its own.
+    #[derive(Clone, Copy)]
+    enum Cost {
+        Fixed(usize),
+        /// (not taken, taken)
+        Branch(usize, usize),
+    }
+    use Cost::{Branch, Fixed};
+
+    /// The DMG timing table, in M-cycles. Undefined opcodes are `None`; those
+    /// are covered by `undefined_opcodes_still_panic`.
+    fn reference(opcode: u8) -> Option<Cost> {
+        // `LD r,r'`, ALU `A,r` and the CB block all cost one more when the
+        // operand is `(HL)`, because that is one extra bus access.
+        let touches_hl = matches!(opcode & 0x0F, 0x06 | 0x0E);
+
+        Some(match opcode {
+            0x76 => Fixed(1), // HALT, not `LD (HL),(HL)`
+            0x40..=0x7F if opcode & 0xF8 == 0x70 => Fixed(2), // LD (HL),r
+            0x40..=0x7F => Fixed(if touches_hl { 2 } else { 1 }),
+            0x80..=0xBF => Fixed(if touches_hl { 2 } else { 1 }),
+
+            0x00 | 0x07 | 0x0F | 0x10 | 0x17 | 0x1F | 0x27 | 0x2F | 0x37 | 0x3F => Fixed(1),
+            0x04 | 0x05 | 0x0C | 0x0D | 0x14 | 0x15 | 0x1C | 0x1D => Fixed(1),
+            0x24 | 0x25 | 0x2C | 0x2D | 0x3C | 0x3D => Fixed(1),
+            0xE9 | 0xF3 | 0xFB => Fixed(1),
+
+            0x02 | 0x0A | 0x12 | 0x1A | 0x22 | 0x2A | 0x32 | 0x3A => Fixed(2),
+            0x03 | 0x0B | 0x13 | 0x1B | 0x23 | 0x2B | 0x33 | 0x3B => Fixed(2),
+            0x09 | 0x19 | 0x29 | 0x39 => Fixed(2),
+            0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x3E => Fixed(2),
+            0xC6 | 0xCE | 0xD6 | 0xDE | 0xE6 | 0xEE | 0xF6 | 0xFE => Fixed(2),
+            0xE2 | 0xF2 | 0xF9 => Fixed(2),
+
+            0x01 | 0x11 | 0x21 | 0x31 => Fixed(3),
+            0x34 | 0x35 | 0x36 => Fixed(3),
+            0x18 => Fixed(3),
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => Fixed(3),
+            0xE0 | 0xF0 | 0xF8 => Fixed(3),
+
+            0xC3 | 0xC9 | 0xD9 | 0xE8 | 0xEA | 0xFA => Fixed(4),
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => Fixed(4),
+            0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => Fixed(4),
+
+            0x08 => Fixed(5),
+            0xCD => Fixed(6),
+
+            0x20 | 0x28 | 0x30 | 0x38 => Branch(2, 3),
+            0xC2 | 0xCA | 0xD2 | 0xDA => Branch(3, 4),
+            0xC0 | 0xC8 | 0xD0 | 0xD8 => Branch(2, 5),
+            0xC4 | 0xCC | 0xD4 | 0xDC => Branch(3, 6),
+
+            // The prefix itself is not timed separately; `prefixed` covers the
+            // 256 instructions behind it.
+            0xCB => return None,
+            _ => return None, // undefined
+        })
+    }
+
+    /// Costs for the 0xCB block, which is regular: two M-cycles, three for a
+    /// `BIT` on `(HL)` (a read), four for anything else on `(HL)` (read plus
+    /// write back).
+    fn reference_prefixed(opcode: u8) -> usize {
+        if !matches!(opcode & 0x0F, 0x06 | 0x0E) {
+            2
+        } else if (0x40..=0x7F).contains(&opcode) {
+            3 // BIT b,(HL) does not write back
+        } else {
+            4
+        }
+    }
+
+    /// Every cost the emulator produces for `opcode` over a spread of states.
+    fn observed(opcode: u8, prefixed: bool) -> Vec<usize> {
+        let mut costs = Vec::new();
+        for seed in 0..64u64 {
+            let (mut cpu, mut bus) = scenario(seed, if prefixed { 0xCB } else { opcode });
+            if prefixed {
+                bus.set(cpu.get_pc() + 1, opcode);
+            }
+            let cost = cpu.step(&mut bus, false);
+            if !costs.contains(&cost) {
+                costs.push(cost);
+            }
+        }
+        costs.sort_unstable();
+        costs
+    }
+
+    #[test]
+    fn unprefixed_opcode_timing_matches_hardware() {
+        let mut wrong = Vec::new();
+        for op in 0u16..=0xFF {
+            let opcode = op as u8;
+            let Some(expected) = reference(opcode) else { continue };
+            let seen = observed(opcode, false);
+            let ok = match expected {
+                // Both arms have to show up, or a branch that never branches
+                // would pass on the strength of its other cost alone.
+                Branch(lo, hi) => seen == [lo, hi],
+                Fixed(cost) => seen == [cost],
+            };
+            if !ok {
+                let want = match expected {
+                    Fixed(c) => alloc::format!("{c}"),
+                    Branch(lo, hi) => alloc::format!("{lo} or {hi}"),
+                };
+                wrong.push(alloc::format!("  {opcode:#04X}: got {seen:?}, want {want}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{} opcodes mistimed:\n{}", wrong.len(), wrong.join("\n"));
+    }
+
+    #[test]
+    fn prefixed_opcode_timing_matches_hardware() {
+        let mut wrong = Vec::new();
+        for op in 0u16..=0xFF {
+            let opcode = op as u8;
+            let expected = reference_prefixed(opcode);
+            let seen = observed(opcode, true);
+            if seen != [expected] {
+                wrong.push(alloc::format!("  CB {opcode:#04X}: got {seen:?}, want {expected}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{} opcodes mistimed:\n{}", wrong.len(), wrong.join("\n"));
     }
 }

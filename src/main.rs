@@ -2,47 +2,35 @@
 //!
 //! * host -- `cargo run`, loads the cartridge from disk and reports peak heap use
 //! * Pico 2 -- `cargo run --target thumbv8m.main-none-eabihf --profile embedded`,
-//!   runs the cartridge from XIP flash and reports over RTT
+//!   runs the cartridge from XIP flash and reports over USB CDC
 //!
-//! Everything from [`emulator`] down is target-independent and compiles
-//! unchanged for both. The seams are [`platform`] (wall clock), [`output`],
-//! [`input`], and the two `main` functions below.
+//! The core itself is the [`rusty_gb`] library, which is target-independent.
+//! What is left here is what cannot be: the two `main` functions, and the board
+//! glue below them ([`clocks`], [`usb_serial`]) that only exists on the Pico.
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
 
 extern crate alloc;
 
-mod bus;
 #[cfg(target_os = "none")]
 mod clocks;
-mod cpu;
-mod emulator;
-mod fetcher;
-mod input;
-mod mbc;
-mod memory;
-mod output;
-mod platform;
-mod ppu;
-mod register;
-mod rom;
 #[cfg(target_os = "none")]
 mod usb_serial;
-mod window_fetcher;
 
-use crate::emulator::Emulator;
+use rusty_gb::emulator::Emulator;
+use rusty_gb::{input, output, rom};
 
 // ============================ Pico 2 / RP2350 ============================
 
 #[cfg(target_os = "none")]
 mod pico {
     use super::*;
-    use crate::rom::Rom;
     use core::mem::MaybeUninit;
     use defmt_rtt as _;
     use embedded_alloc::Heap;
     use panic_halt as _;
     use rp235x_hal as hal;
+    use rusty_gb::rom::Rom;
 
     #[global_allocator]
     static ALLOCATOR: Heap = Heap::empty();
@@ -53,7 +41,7 @@ mod pico {
 
     pub(crate) const XTAL_FREQ_HZ: u32 = 12_000_000u32;
 
-    defmt::timestamp!("{=u64:us}", crate::platform::micros());
+    defmt::timestamp!("{=u64:us}", rusty_gb::platform::micros());
 
     /// The cartridge, linked into XIP flash.
     ///
@@ -63,7 +51,7 @@ mod pico {
     /// rather than owning a copy.
     static ROM_IMAGE: &[u8] = include_bytes!("../test-roms/Pokemon Red.gb");
 
-    /// Backs the ERAM `Vec` in [`crate::memory::Memory`] plus the one-off USB
+    /// Backs the ERAM `Vec` in [`rusty_gb::memory::Memory`] plus the one-off USB
     /// bus allocator, so it only has to cover the largest cartridge RAM this
     /// emulator maps (32 KiB, MBC3) with room to spare.
     const HEAP_SIZE: usize = 64 * 1024;
@@ -117,8 +105,8 @@ mod pico {
             clocks.system_clock.freq().to_MHz()
         );
 
-        let output = crate::output::dummy::Dummy::new();
-        let input = crate::input::Dummy::new();
+        let output = output::dummy::Dummy::new();
+        let input = input::Dummy::new();
 
         // Both sinks are the one CDC port -- `Serial` is a unit struct, so these
         // are two handles to the same device, kept separate only so the Game
@@ -177,59 +165,4 @@ fn main() {
     emu.run(60 * 2000, &mut Stdout, &mut Stdout);
 
     println!("The max amount that was used {}", PEAK_ALLOC.peak_usage_as_kb());
-}
-
-#[cfg(all(test, not(target_os = "none")))]
-mod tests {
-    use crate::emulator::Emulator;
-    use crate::input;
-    use crate::output::dummy::Dummy;
-    use crate::rom::Rom;
-    use std::path::Path;
-
-    /// Blargg's cpu_instrs suite. Each ROM reports through the serial port,
-    /// which `Emulator::run` drains into the sink passed to it -- so the pass
-    /// condition is just what turns up in that string.
-    ///
-    /// Diagnostics go to a separate sink that is thrown away: they are emitted
-    /// between frames, and sharing the serial sink let an FPS line land between
-    /// the "P" and "assed" of a ROM's own output.
-    ///
-    /// One test per ROM rather than a loop, so a regression names the failing
-    /// ROM directly.
-    macro_rules! blargg {
-        ($name:ident, $rom:literal) => {
-            #[test]
-            fn $name() {
-                let path = Path::new("test-roms")
-                    .join("gb-test-roms-master")
-                    .join("cpu_instrs")
-                    .join("individual")
-                    .join($rom);
-                let mut emu = Emulator::new(
-                    Rom::file(path.to_str().unwrap()),
-                    input::Dummy::new(),
-                    Dummy::new(),
-                );
-
-                let mut serial = String::new();
-                emu.run(600, &mut serial, &mut String::new());
-
-                assert!(serial.contains("Passed"), "no pass in output: {serial:?}");
-                assert!(!serial.contains("Failed"), "failure in output: {serial:?}");
-            }
-        };
-    }
-
-    blargg!(blargg1, "01-special.gb");
-    blargg!(blargg2, "02-interrupts.gb");
-    blargg!(blargg3, "03-op sp,hl.gb");
-    blargg!(blargg4, "04-op r,imm.gb");
-    blargg!(blargg5, "05-op rp.gb");
-    blargg!(blargg6, "06-ld r,r.gb");
-    blargg!(blargg7, "07-jr,jp,call,ret,rst.gb");
-    blargg!(blargg8, "08-misc instrs.gb");
-    blargg!(blargg9, "09-op r,r.gb");
-    blargg!(blargg10, "10-bit ops.gb");
-    blargg!(blargg11, "11-op a,(hl).gb");
 }

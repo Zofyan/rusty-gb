@@ -2,7 +2,7 @@
 //!
 //! The alternative on this board is defmt over RTT, but draining an RTT buffer
 //! needs a SWD debug probe. CDC needs only the USB cable that already powers
-//! the board, so this is what [`crate::emulator::Emulator::run`] writes its FPS
+//! the board, so this is what [`rusty_gb::emulator::Emulator::run`] writes its FPS
 //! line and the Game Boy's serial port into.
 //!
 //! # Why this runs off an interrupt
@@ -135,14 +135,14 @@ pub fn init(
 ///
 /// Returns whether a host actually turned up.
 pub fn wait_for_host() -> bool {
-    let start = crate::platform::micros();
+    let start = rusty_gb::platform::micros();
     loop {
         if critical_section::with(|cs| {
             USB.borrow(cs).borrow().as_ref().is_some_and(Usb::ready)
         }) {
             return true;
         }
-        if crate::platform::micros() - start > ATTACH_TIMEOUT_US {
+        if rusty_gb::platform::micros() - start > ATTACH_TIMEOUT_US {
             return false;
         }
     }

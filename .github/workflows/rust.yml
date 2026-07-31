@@ -19,5 +19,24 @@ jobs:
     - run: sudo apt-get install -y pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev
     - name: Build
       run: cargo build --verbose
+
+    # Release, not debug: the ROM suites run a few hundred million emulated
+    # instructions between them, which is seconds optimised and minutes not.
+    # The suites are vendored, so there is nothing to fetch first.
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --release --verbose
+
+    # The known-failing ROMs, as information rather than as a gate. They are
+    # `#[ignore]`d, so a ROM that starts passing after an accuracy fix would
+    # otherwise stay silently ignored; this is what surfaces it. Expected to
+    # fail, hence continue-on-error -- read the log, not the badge.
+    - name: Known-failing ROMs (informational)
+      continue-on-error: true
+      run: cargo test --release -- --ignored
+
+    # Compiles and runs one workload, so a change that breaks the benchmark is
+    # caught here rather than the next time someone wants a number from it.
+    # Timings off a shared runner are not comparable between runs, so nothing
+    # is asserted about them.
+    - name: Benchmark smoke test
+      run: cargo bench --bench throughput -- cpu_instrs/dummy

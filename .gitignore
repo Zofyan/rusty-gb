@@ -15,7 +15,11 @@ check.py
 !.cargo/config.toml
 .claude/
 .idea/
-Cargo.lock
+# Cargo.lock is deliberately *not* ignored. This is a binary, not a library, so
+# the lockfile is what makes a checkout on another machine resolve the same
+# dependency set that was actually built and tested here -- which matters more
+# than usual with two HALs and a linker in the graph, where a semver-compatible
+# bump can turn into a link error rather than a compile error.
 flamegraph.svg
 src/.DS_Store
 

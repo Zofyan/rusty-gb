@@ -43,6 +43,36 @@ that `cargo test` needs no network and no setup:
 * `test-roms/mooneye-test-suite/` — Gekkio's mooneye suite (MIT, `LICENSE`
   included), release `mts-20240926-1737-443f6e1`
 
+## Setting up a new machine
+
+A clone plus a stock Rust toolchain builds and tests the host. Everything below
+is only needed for the Pico.
+
+```sh
+rustup target add thumbv8m.main-none-eabihf   # Pico 2
+rustup target add thumbv6m-none-eabi          # Pico 1 / W / WH
+```
+
+`picotool` has to be on `PATH` to flash anything — `brew install picotool` on
+macOS, or the [pico-sdk-tools
+releases](https://github.com/raspberrypi/pico-sdk-tools/releases) on Windows,
+which ship a `picotool.exe` to drop somewhere on `PATH`. It is only needed to
+flash: `cargo build` for either Pico works without it, and so does
+`tools/flash.ps1 -MonitorOnly`.
+
+On Windows the host build also wants the MSVC linker, which comes with the
+Visual Studio Build Tools ("Desktop development with C++"). That is the
+ordinary Rust-on-Windows prerequisite rather than anything this project adds.
+
+The one thing a clone cannot give you is the cartridge. `test-roms/*.gb` is
+gitignored, deliberately — see above — so copy your own dump across by hand and
+drop it at the path `src/main.rs` names. The Pico build fails at compile time
+with a "couldn't read" error until you do; the host build does not, because it
+only opens its ROM at runtime.
+
+`Cargo.lock` is checked in, so a fresh clone resolves the same dependency set
+that was built and tested here rather than whatever is newest that day.
+
 ## Building
 
 The host is the default target, so the test suite is always one command away:

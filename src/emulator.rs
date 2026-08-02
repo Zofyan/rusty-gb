@@ -74,7 +74,8 @@ pub struct Emulator<I: Input, O: Output> {
     /// this, so it has to be monotonic and it has to be exact.
     cycles: u64,
 }
-
+use crate::output::spi::CORE1_STATUS;
+use core::sync::atomic::Ordering;
 impl<I: Input, O: Output> Emulator<I, O> {
     pub fn new(game: Rom, input: I, output: O) -> Self {
 
@@ -284,11 +285,11 @@ impl<I: Input, O: Output> Emulator<I, O> {
                 let avg = fps_tenths(self.frames as u64, self.micros_total);
                 let _ = writeln!(
                     diag,
-                    "FPS: {}.{} (avg {}.{})",
+                    "FPS: {}.{} (avg {}.{}) {}",
                     inst / 10,
                     inst % 10,
                     avg / 10,
-                    avg % 10
+                    avg % 10, CORE1_STATUS.load(Ordering::Relaxed)
                 );
             }
             self.output.set_diagnostics(format!("FPS: {}.{}", inst / 10, inst % 10));

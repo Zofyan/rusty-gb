@@ -49,6 +49,11 @@ defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 embedded-alloc = "0.5.1"
 panic-halt = "0.2.0"
+mipidsi = "0.10.0"
+static_cell = "2.1.1"
+embedded-hal-bus = "0.3.0"
+embedded-graphics = "0.8.2"
+embedded-hal = "1.0.0"
 rp235x-hal = { version = "0.3.0", features = ["binary-info", "critical-section-impl", "rt", "defmt"] }
 # USB CDC, so the FPS readout and the Game Boy serial port reach a host
 # terminal over the same cable that powers the board -- no debug probe, which

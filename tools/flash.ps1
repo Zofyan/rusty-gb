@@ -51,7 +51,7 @@ $ErrorActionPreference = 'Stop'
 
 # PowerShell 7 does not load System.IO.Ports by default; Windows PowerShell 5.1
 # has it in System.dll already and fails this call harmlessly.
-Add-Type -AssemblyName System.IO.Ports -ErrorAction SilentlyContinue
+# Add-Type -AssemblyName System.IO.Ports -ErrorAction SilentlyContinue
 
 $Target       = 'thumbv8m.main-none-eabihf'
 $CargoProfile = 'embedded'

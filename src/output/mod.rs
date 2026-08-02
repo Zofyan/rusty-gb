@@ -10,6 +10,9 @@ pub mod lcd;
 #[cfg(not(target_os = "none"))]
 pub mod terminal;
 
+#[cfg(target_os = "none")]
+pub mod spi;
+
 use alloc::string::String;
 
 pub const SCREEN_WIDTH: usize = 160;

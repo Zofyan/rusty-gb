@@ -31,6 +31,17 @@ mod pico {
     use panic_halt as _;
     use rp235x_hal as hal;
     use rusty_gb::rom::Rom;
+    use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
+    use embedded_hal_bus::spi::ExclusiveDevice;
+    use mipidsi::{interface::SpiInterface, models::ILI9225Rgb565, Builder};
+    use static_cell::StaticCell;
+    use rusty_gb::output::spi::DisplayParts;
+    use rp235x_hal::fugit::RateExtU32;
+    use embedded_hal::digital::{ErrorType, OutputPin};
+    use rp235x_hal::gpio::FunctionSpi;
+
+    static DISPLAY_BUF: StaticCell<[u8; 512]> = StaticCell::new();
+
 
     #[global_allocator]
     static ALLOCATOR: Heap = Heap::empty();
@@ -86,6 +97,8 @@ mod pico {
             &mut watchdog,
         )
         .unwrap();
+        
+        let timer = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
 
         // Diagnostics go out over USB CDC rather than defmt/RTT, so that
         // reading them needs no debug probe. From here the stack services
@@ -103,9 +116,47 @@ mod pico {
             crate::usb_serial::Serial,
             "rusty-gb: clk_sys {} MHz",
             clocks.system_clock.freq().to_MHz()
+                );
+        let sio = hal::Sio::new(pac.SIO);
+        let pins = hal::gpio::Pins::new(pac.IO_BANK0, pac.PADS_BANK0, sio.gpio_bank0, &mut pac.RESETS);
+
+        let sclk = pins.gpio2.into_function::<FunctionSpi>();
+        let mosi = pins.gpio3.into_function::<FunctionSpi>();
+        let cs = pins.gpio5.into_push_pull_output();
+        let dc = pins.gpio6.into_push_pull_output();
+        let rst = pins.gpio7.into_push_pull_output();
+
+        let mut backlight = pins.gpio8.into_push_pull_output();
+        backlight.set_high().unwrap();
+
+
+        let spi = hal::Spi::<_, _, _, 8>::new(
+            pac.SPI0,
+            (
+                mosi,
+                sclk,
+            ),
+        ).init(
+            &mut pac.RESETS,
+            clocks.peripheral_clock.freq(),
+            4.MHz(),
+            embedded_hal::spi::MODE_3,
         );
 
-        let output = output::dummy::Dummy::new();
+
+        let output = output::spi::SPI::new(
+            &mut pac.PSM,
+            &mut pac.PPB,
+            sio.fifo,
+            DisplayParts {
+                spi,
+                cs: cs,
+                dc: dc,
+                rst: rst,
+                led: backlight,
+                timer,
+            },
+        );
         let input = input::Dummy::new();
 
         // Both sinks are the one CDC port -- `Serial` is a unit struct, so these
@@ -113,7 +164,7 @@ mod pico {
         // Boy's serial stream is not interleaved mid-token with diagnostics.
         let mut emu = Emulator::new(Rom::mapped(ROM_IMAGE), input, output);
         emu.run(
-            60 * 10,
+            60 * 1000,
             &mut crate::usb_serial::Serial,
             &mut crate::usb_serial::Serial,
         );

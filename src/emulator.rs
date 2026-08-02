@@ -74,8 +74,23 @@ pub struct Emulator<I: Input, O: Output> {
     /// this, so it has to be monotonic and it has to be exact.
     cycles: u64,
 }
-use crate::output::spi::CORE1_STATUS;
-use core::sync::atomic::Ordering;
+/// Core 1's progress through display bring-up, appended to the FPS line.
+///
+/// The counter lives in the SPI backend, which only exists on the Pico -- so
+/// on the host there is no second core to report on and this is a constant.
+/// Reported rather than logged because a stall shows up as a number that stops
+/// moving, which is readable in the same line the frame rate is already in.
+#[cfg(target_os = "none")]
+fn core1_status() -> u32 {
+    use core::sync::atomic::Ordering;
+    crate::output::spi::CORE1_STATUS.load(Ordering::Relaxed)
+}
+
+#[cfg(not(target_os = "none"))]
+fn core1_status() -> u32 {
+    0
+}
+
 impl<I: Input, O: Output> Emulator<I, O> {
     pub fn new(game: Rom, input: I, output: O) -> Self {
 
@@ -289,7 +304,8 @@ impl<I: Input, O: Output> Emulator<I, O> {
                     inst / 10,
                     inst % 10,
                     avg / 10,
-                    avg % 10, CORE1_STATUS.load(Ordering::Relaxed)
+                    avg % 10,
+                    core1_status()
                 );
             }
             self.output.set_diagnostics(format!("FPS: {}.{}", inst / 10, inst % 10));

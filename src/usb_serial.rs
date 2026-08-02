@@ -18,20 +18,33 @@
 //!
 //! The same interrupt watches for the Arduino-style 1200 baud touch (see
 //! [`BOOTSEL_TOUCH_BAUD`]), which is what lets a host flash the board without
-//! anyone reaching for the BOOTSEL button. `tools/flash.ps1` drives it.
+//! anyone reaching for the BOOTSEL button. `tools/flash.sh` (macOS) and
+//! `tools/flash.ps1` (Windows) drive it.
 
 use alloc::boxed::Box;
 use core::cell::RefCell;
 use core::fmt;
 use critical_section::Mutex;
-use rp235x_hal as hal;
 use hal::pac::interrupt;
+use rusty_gb::hal;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbDeviceState, UsbVidPid};
 use usb_device::UsbError;
 use usbd_serial::SerialPort;
 
 type Bus = hal::usb::UsbBus;
+
+/// The USB controller and its dedicated packet RAM. Identical peripherals on
+/// the two parts, named differently by their PACs, so [`init`] takes these
+/// rather than repeating the `cfg` on its signature.
+#[cfg(rp2350)]
+type UsbCtrl = hal::pac::USB;
+#[cfg(rp2350)]
+type UsbDpram = hal::pac::USB_DPRAM;
+#[cfg(rp2040)]
+type UsbCtrl = hal::pac::USBCTRL_REGS;
+#[cfg(rp2040)]
+type UsbDpram = hal::pac::USBCTRL_DPRAM;
 
 /// Raspberry Pi's vendor ID with the SDK's CDC-UART product ID. Reusing the
 /// pair the Pico SDK ships means hosts already have a driver bound to it, so
@@ -92,8 +105,8 @@ static USB: Mutex<RefCell<Option<Usb>>> = Mutex::new(RefCell::new(None));
 /// Must run after the global allocator is initialised, and the caller keeps no
 /// handle: everything afterwards goes through [`Serial`].
 pub fn init(
-    usb: hal::pac::USB,
-    dpram: hal::pac::USB_DPRAM,
+    usb: UsbCtrl,
+    dpram: UsbDpram,
     clock: hal::clocks::UsbClock,
     resets: &mut hal::pac::RESETS,
 ) {
@@ -207,19 +220,29 @@ fn USBCTRL_IRQ() {
         usb.bootsel_requested()
     });
 
-    // Outside the critical section and outside the borrow: `reboot` never
+    // Outside the critical section and outside the borrow: neither call below
     // returns, so anything still held here would be held forever -- and the ROM
-    // call it makes has no business running with interrupts masked.
+    // routine they reach has no business running with interrupts masked.
+    //
+    // Both leave the two BOOTSEL interfaces up. Disabling either only narrows
+    // what the host can do with the board it just rebooted, and the mass
+    // storage one is the fallback when picotool cannot see it.
     if reboot {
+        #[cfg(rp2350)]
         hal::reboot::reboot(
-            // Leave both interfaces up. Disabling either only narrows what the
-            // host can do with the board it just rebooted, and the mass storage
-            // one is the fallback when picotool cannot see it.
             hal::reboot::RebootKind::BootSel {
                 picoboot_disabled: false,
                 msd_disabled: false,
             },
             hal::reboot::RebootArch::Normal,
         );
+
+        // The RP2040's bootrom has no general reboot entry point, just this
+        // one. First argument is a mask of GPIOs to blink as a BOOTSEL
+        // activity light: zero, because the only LED on a Pico W hangs off the
+        // wireless chip rather than off a GPIO. Second is a mask of interfaces
+        // to disable.
+        #[cfg(rp2040)]
+        hal::rom_data::reset_to_usb_boot(0, 0);
     }
 }

@@ -1,10 +1,10 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Build, flash and attach to rusty-gb on a Pico 2, without touching the board.
+    Build, flash and attach to rusty-gb on a Pico, without touching the board.
 
 .DESCRIPTION
-    The BOOTSEL button is the only part of the Pico 2 flashing loop that needs a
+    The BOOTSEL button is the only part of the flashing loop that needs a
     human, and it is the part that makes an unplug-replug cycle out of every
     build. The firmware watches the USB CDC port for the 1200 baud touch (see
     src/usb_serial.rs), so this script can do that reset itself:
@@ -14,6 +14,22 @@
         stream it to this console
 
     Ctrl-C in the monitor exits; the board keeps running.
+
+.PARAMETER Pico1
+    Build for a Pico 1 / W / WH (RP2040) instead of a Pico 2.
+
+    Only the build and the load care which board it is -- everything from the
+    1200 baud touch to the monitor is identical on both, because it is our own
+    firmware answering rather than anything board-specific. There is no
+    autodetection, and cannot usefully be: a board running rusty-gb advertises
+    the same VID/PID whichever chip it is, so the two are indistinguishable
+    until one is already in BOOTSEL -- by which point the build has to have
+    happened. Flashing the wrong image is not dangerous; picotool refuses it on
+    the family ID in the image.
+
+.PARAMETER Pico2
+    Build for a Pico 2 (RP2350). The default, so this only ever needs saying to
+    override a -Pico1 earlier on the same line.
 
 .PARAMETER Port
     COM port of the board, e.g. COM5. Found automatically by USB VID/PID when
@@ -34,11 +50,14 @@
 
 .EXAMPLE
     .\tools\flash.ps1
+    .\tools\flash.ps1 -Pico1
     .\tools\flash.ps1 -MonitorOnly
     .\tools\flash.ps1 -NoBuild -NoMonitor
 #>
 [CmdletBinding()]
 param(
+    [switch]$Pico1,
+    [switch]$Pico2,
     [string]$Port,
     [switch]$NoBuild,
     [switch]$NoMonitor,
@@ -53,7 +72,18 @@ $ErrorActionPreference = 'Stop'
 # has it in System.dll already and fails this call harmlessly.
 # Add-Type -AssemblyName System.IO.Ports -ErrorAction SilentlyContinue
 
-$Target       = 'thumbv8m.main-none-eabihf'
+if ($Pico1 -and $Pico2) { throw 'Pass -Pico1 or -Pico2, not both.' }
+
+if ($Pico1) {
+    $Target         = 'thumbv6m-none-eabi'
+    $BoardName      = 'Pico 1 / W / WH (RP2040)'
+    $BootselVolume  = 'RPI-RP2'
+} else {
+    $Target         = 'thumbv8m.main-none-eabihf'
+    $BoardName      = 'Pico 2 (RP2350)'
+    $BootselVolume  = 'RP2350'
+}
+
 $CargoProfile = 'embedded'
 $RepoRoot    = Split-Path -Parent $PSScriptRoot
 $Elf         = Join-Path $RepoRoot "target\$Target\$CargoProfile\rusty-gb"
@@ -159,7 +189,7 @@ function Enter-Bootsel {
 }
 
 function Invoke-Build {
-    Write-Step "cargo build --target $Target --profile $CargoProfile"
+    Write-Step "${BoardName}: cargo build --target $Target --profile $CargoProfile"
     Push-Location $RepoRoot
     try {
         & cargo build --target $Target --profile $CargoProfile
@@ -219,7 +249,7 @@ if ($MonitorOnly) {
 
 if ($Reset) {
     Enter-Bootsel
-    Write-Step 'In BOOTSEL. Drag a .uf2 onto the RP2350 drive, or run picotool.'
+    Write-Step "In BOOTSEL. Drag a .uf2 onto the $BootselVolume drive, or run picotool."
     return
 }
 

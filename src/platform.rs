@@ -9,16 +9,25 @@
 ///
 /// Only differences between two calls are meaningful, so the epoch differs per
 /// target: the Unix epoch on the host, power-on on the Pico.
+///
+/// Both RP-series parts have the same 1 MHz free-running timer with the same
+/// latching register pair; the RP2350 just has two of them, so the block is
+/// `TIMER0` there and plain `TIMER` on the RP2040.
 #[cfg(target_os = "none")]
 #[inline]
 pub fn micros() -> u64 {
-    // TIMER0's low half latches the high half, so `TIMELR` must be read first;
-    // reading them in the other order can straddle a wrap and jump by 2^32 us.
+    #[cfg(rp2350)]
+    let timer = unsafe { &*crate::hal::pac::TIMER0::ptr() };
+    #[cfg(rp2040)]
+    let timer = unsafe { &*crate::hal::pac::TIMER::ptr() };
+
+    // The timer's low half latches the high half, so `TIMELR` must be read
+    // first; reading them in the other order can straddle a wrap and jump by
+    // 2^32 us.
     //
     // The register pair is read-only and free-running, so stealing the PAC
     // block races with nothing -- there is no state here for a concurrent owner
     // to observe as torn.
-    let timer = unsafe { &*rp235x_hal::pac::TIMER0::ptr() };
     let low = timer.timelr().read().bits() as u64;
     let high = timer.timehr().read().bits() as u64;
     (high << 32) | low

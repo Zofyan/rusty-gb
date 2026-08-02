@@ -10,7 +10,7 @@ picotool.exe
 check.py
 .DS_Store
 # config.toml is not local tooling here: it carries the linker flags and the
-# picotool runner the Pico 2 target needs, so it has to be tracked.
+# picotool runner both Pico targets need, so it has to be tracked.
 .cargo/*
 !.cargo/config.toml
 .claude/

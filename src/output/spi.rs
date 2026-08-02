@@ -1,21 +1,30 @@
+use crate::hal;
 use crate::output::{Output, SCREEN_WIDTH};
 use alloc::string::String;
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use mipidsi::{interface::SpiInterface, models::ILI9225Rgb565, Builder};
-use rp235x_hal as hal;
 use static_cell::StaticCell;
 use core::sync::atomic::{AtomicU32, Ordering};
 use hal::gpio::{bank0, FunctionSio, FunctionSpi, Pin, PullDown, SioOutput};
 use hal::multicore::{Multicore, Stack};
 use hal::pac;
-use rp235x_hal::timer::CopyableTimer0;
 use hal::sio::{Sio, SioFifo};
 use core::sync::atomic::{AtomicBool};
 use embedded_hal::digital::{ErrorType, OutputPin};
 use mipidsi::{
     options::{ColorInversion, ColorOrder, Orientation, Rotation},
 };
+
+/// The 1 MHz timer, which this module wants only as `mipidsi`'s reset and
+/// init delay.
+///
+/// The RP2350 has two of them and its HAL makes which one a type parameter;
+/// the RP2040 has one and does not.
+#[cfg(rp2350)]
+pub type DelayTimer = hal::Timer<hal::timer::CopyableTimer0>;
+#[cfg(rp2040)]
+pub type DelayTimer = hal::Timer;
 
 static CS_STICKY: AtomicBool = AtomicBool::new(false);
 
@@ -43,7 +52,7 @@ pub struct DisplayParts {
     pub dc: Out<bank0::Gpio6>,
     pub rst: Out<bank0::Gpio7>,
     pub led: Out<bank0::Gpio8>,
-    pub timer: hal::Timer<CopyableTimer0>,
+    pub timer: DelayTimer,
 }
 
 

@@ -1,4 +1,4 @@
-//! Pico clock bring-up, at twice the RP2350's nominal system clock.
+//! Pico 2 (RP2350) clock bring-up, at twice the part's nominal system clock.
 //!
 //! [`hal::clocks::init_clocks_and_plls`] is the one-call version of everything
 //! below and brings the part up at 150 MHz, its datasheet maximum. The emulator

@@ -1,7 +1,13 @@
 # rusty-gb
 
-A Game Boy (DMG) emulator in Rust, targeting both a desktop host and a
-Raspberry Pi Pico 2 (RP2350, Cortex-M33) from one source tree.
+A Game Boy (DMG) emulator in Rust, targeting a desktop host and two Raspberry
+Pi Picos from one source tree:
+
+| target | triple | notes |
+| --- | --- | --- |
+| host | native | macOS/Linux/Windows; the default, so `cargo test` is one word |
+| Pico 2 | `thumbv8m.main-none-eabihf` | RP2350, Cortex-M33, 520 KiB SRAM |
+| Pico 1 / W / WH | `thumbv6m-none-eabi` | RP2040, Cortex-M0+, 264 KiB SRAM |
 
 ## Cartridge images are not included
 
@@ -23,6 +29,13 @@ to point at your own. Without it the Pico build fails at compile time with a
 Note that a built Pico image therefore *embeds* the cartridge — don't
 redistribute the resulting `.elf` or `.uf2`.
 
+The cartridge has to fit in flash alongside the code, which is the one place
+the Pico 1 is tighter than the Pico 2: 2 MiB against 4 MiB. The emulator itself
+is about 64 KiB, so a 1 MiB cartridge like Pokémon Red leaves roughly 950 KiB
+spare on a Pico 1 — but a 2 MiB cartridge will not fit there at all, and the
+failure is a linker error about `FLASH` overflowing rather than anything
+subtle.
+
 What *is* included are the two freely redistributable test suites, vendored so
 that `cargo test` needs no network and no setup:
 
@@ -42,38 +55,80 @@ cargo run --release     # needs test-roms/Pokemon Red.gb
 `--release` is worth typing: the ROM suites run a few hundred million emulated
 instructions, which takes about two seconds optimised and rather longer not.
 
-The Pico 2 is one `--target` away:
+Either Pico is one `--target` away:
 
 ```sh
+# Pico 2
 cargo build --target thumbv8m.main-none-eabihf --profile embedded
 cargo run   --target thumbv8m.main-none-eabihf --profile embedded  # flashes via picotool
+
+# Pico 1 / W / WH
+cargo build --target thumbv6m-none-eabi --profile embedded
+cargo run   --target thumbv6m-none-eabi --profile embedded
 ```
 
-`cargo run` for the Pico uses `picotool`, which needs the board in BOOTSEL
+`cargo run` for either Pico uses `picotool`, which needs the board in BOOTSEL
 mode. Either hold BOOTSEL while plugging it in, or — once firmware with the
 1200 baud reset is on the board — let the host ask for it (see below).
 
-The split is on `target_os = "none"`: the Pico target reports `none`, hosts
-report macos/linux/windows, so neither build needs a remembered `--features`
-to be correct.
+`--target` is the whole of the board selection. Host versus Pico splits on
+`target_os = "none"`, which the Pico triples report and macos/linux/windows do
+not; Pico 1 versus Pico 2 splits on the `rp2040` / `rp2350` cfgs that
+`build.rs` derives from the triple, which is also how it picks the linker
+script out of `memory/`. So no build needs a remembered `--features` to be
+correct, and there is no board default to get wrong.
 
-### The Pico runs at 300 MHz
+Almost all of the difference is confined to `src/clocks/`, since the two HALs
+are close enough in shape that everything else names `rusty_gb::hal` and stops
+caring. What is left is a handful of `#[cfg]`s in `src/main.rs` and
+`src/usb_serial.rs`, each on a peripheral the two PACs name differently.
 
-`src/clocks.rs` replaces `hal::clocks::init_clocks_and_plls`, which brings the
-RP2350 up at its specified 150 MHz, with the same sequence at double that. The
-emulator is CPU-bound on this board — about 30 fps at stock — so the frame rate
-follows the clock, though short of a clean 2×: the flash divisor is scaled with
-the clock (below), so XIP cache misses cost the same wall-clock time they did
-before while everything else halves.
+### Both boards run overclocked
 
-Three things move, in this order: core voltage to 1.15 V, then the QSPI flash
-divisor, then the PLL. `SYS_MHZ` in that file is the only knob — set it back to
-`150` and the PLL config and flash divisor follow, putting the board at stock.
+`src/clocks/` replaces each HAL's `init_clocks_and_plls`, which brings its part
+up at the nominal speed, with the same sequence at double that. The emulator is
+CPU-bound on both boards, so the frame rate follows the clock.
 
-**300 MHz is out of spec.** Raspberry Pi specify 150 MHz at 1.10 V. Silicon
-varies, and a part that will not hold this shows it as a hang or a corrupted
-frame, not as an error message. If that happens, try 1.20 V (`VSEL` `0b01101`)
-before suspecting anything else, and drop `SYS_MHZ` if it persists.
+| | Pico 2 | Pico 1 / W / WH |
+| --- | --- | --- |
+| core | Cortex-M33 | Cortex-M0+ |
+| stock | 150 MHz | 125 MHz |
+| `SYS_MHZ` | 300 | 250 |
+| core voltage | 1.15 V | 1.15 V |
+| flash divisor | scaled with the clock | left alone |
+
+`SYS_MHZ` in the file for your board is the only knob — set it to the stock
+figure and the PLL config and core voltage follow, putting the board back where
+the datasheet wants it.
+
+The flash divisor is the one place the two genuinely differ. On the Pico 2 it
+has to be scaled by hand to keep QSPI SCK where the bootrom left it, so flash
+bandwidth stands still and the speedup falls short of a clean 2× by however
+much the 16 KiB XIP cache misses. On the Pico 1 nothing needs correcting —
+`boot2` leaves SCK at `clk_sys / 4`, which at 250 MHz is 62.5 MHz, well inside
+what the board's flash is rated for — so flash speeds up along with the core.
+Reconfiguring it there would mean a RAM-resident function anyway, because the
+RP2040 un-maps XIP while its SSI is disabled. The comments in
+`src/clocks/rp2040.rs` go into why.
+
+Don't expect the Pico 1 to match the Pico 2 even at a similar clock. The M0+ is
+16-bit Thumb only, with no DSP, no FPU and a multiply that is not always
+single-cycle, so it does substantially less per cycle than the M33.
+
+**Both defaults are out of spec.** Raspberry Pi specify 150 MHz for the RP2350
+and 133 MHz for the RP2040, both at 1.10 V. Silicon varies, and a part that
+will not hold this shows it as a hang or a corrupted frame, not as an error
+message. If that happens, try 1.20 V — `VSEL` `0b01101` on the Pico 2,
+`VSEL_A::VOLTAGE1_20` on the Pico 1 — before suspecting anything else, and drop
+`SYS_MHZ` if it persists.
+
+The first line out of the USB port names the board and the frequency the PLL
+actually locked to, so a fallback is visible immediately rather than only as
+disappointing FPS:
+
+```
+rusty-gb on Pico 1 (RP2040): clk_sys 250 MHz
+```
 
 ## Testing
 
@@ -179,17 +234,23 @@ Diagnostics go out over **USB CDC**, not defmt/RTT, so reading them needs no
 debug probe — just the cable that already powers the board:
 
 ```sh
-ls /dev/tty.usbmodem*            # macOS; /dev/ttyACM* on Linux
-screen /dev/tty.usbmodem101      # baud is ignored for CDC; exit with Ctrl-A K
+ls /dev/cu.usbmodem*             # macOS; /dev/ttyACM* on Linux
+screen /dev/cu.usbmodem101       # baud is ignored for CDC; exit with Ctrl-A K
+tools/flash.sh --monitor-only    # or this, which finds the port itself
 ```
+
+`/dev/cu.*` rather than `/dev/tty.*`: the callout node does not wait on carrier
+detect, which nothing on a CDC port ever raises.
 
 You get a live FPS line every 15 frames plus a final average. The emulator
 waits up to 10 seconds for a terminal to open the port before starting, so
 nothing is lost off the top, and still boots unattended if nothing attaches.
 
-The first line out of the port is the system clock the PLL actually locked to,
-so an overclock that silently fell back is visible immediately rather than only
-as disappointing FPS.
+The first line out of the port names the board and the system clock the PLL
+actually locked to, so an overclock that silently fell back is visible
+immediately rather than only as disappointing FPS. Both builds enumerate under
+the same VID/PID, so this line is also the only thing that says which image is
+on the board in front of you.
 
 The Game Boy's own serial port goes to the same physical port but a separate
 sink, so a parser reading cartridge output never sees an FPS line spliced into
@@ -202,26 +263,53 @@ The firmware watches the CDC port for the 1200 baud touch — open the port at
 board into flashing mode itself. `picotool` then loads over the same cable, and
 the terminal comes back on its own.
 
-On Windows, `tools/flash.ps1` does the whole loop:
-
-```powershell
-.\tools\flash.ps1              # build, reset, flash, attach
-.\tools\flash.ps1 -MonitorOnly # attach to a board that is already running
-.\tools\flash.ps1 -NoBuild     # flash what is already in target/
-.\tools\flash.ps1 -Reset       # just drop into BOOTSEL, then exit
-```
-
-It finds the board by USB VID/PID (`2E8A:000A`), so no COM port has to be
-remembered; pass `-Port COM5` if two boards are plugged in. It needs `picotool`
-on `PATH` — except under `-MonitorOnly`, which needs nothing but the port.
-Ctrl-C detaches the monitor and leaves the board running.
-
-The same trick from a Unix shell, if you are not on Windows:
+Two scripts drive the whole loop, one per host. Same steps, same flags:
 
 ```sh
-stty -f /dev/tty.usbmodem101 1200      # macOS; stty -F /dev/ttyACM0 1200 on Linux
-cargo run --target thumbv8m.main-none-eabihf --profile embedded
+tools/flash.sh                  # macOS: build, reset, flash, attach — Pico 2
+tools/flash.sh --pico1          # the same, for a Pico 1 / W / WH
+tools/flash.sh --monitor-only   # attach to a board that is already running
+tools/flash.sh --no-build       # flash what is already in target/
+tools/flash.sh --reset          # just drop into BOOTSEL, then exit
 ```
+
+```powershell
+.\tools\flash.ps1              # Windows, same five
+.\tools\flash.ps1 -Pico1
+.\tools\flash.ps1 -MonitorOnly
+.\tools\flash.ps1 -NoBuild
+.\tools\flash.ps1 -Reset
+```
+
+Both find the board by USB VID/PID (`2E8A:000A`), so no port has to be
+remembered — `ioreg` on macOS, PnP device IDs on Windows. Pass `--port
+/dev/cu.usbmodem101` (`-Port COM5`) if two boards are plugged in. Both need
+`picotool` on `PATH` — `brew install picotool` on macOS — except under
+`--monitor-only`, which needs nothing but the port. Ctrl-C detaches the monitor
+and leaves the board running.
+
+`--pico1`/`-Pico1` only changes what gets built and loaded; the reset, the
+port discovery and the monitor are identical either way, because it is our own
+firmware answering rather than anything board-specific. There is no
+autodetection and cannot usefully be — a board running rusty-gb looks the same
+whichever chip it is, and by the time one is in BOOTSEL the build has already
+had to happen. Getting it wrong is not dangerous: `picotool` refuses an image
+whose family ID does not match the board.
+
+The monitor holds the port open for the whole session rather than reopening it
+per read, because dropping DTR is half of the reset signal and the firmware's
+wait-for-host watches the other half.
+
+The same trick by hand, which is all the script is doing:
+
+```sh
+stty -f /dev/cu.usbmodem101 1200       # macOS; stty -F /dev/ttyACM0 1200 on Linux
+cargo run --target thumbv8m.main-none-eabihf --profile embedded   # or thumbv6m-none-eabi
+```
+
+On Linux that one-liner is the whole story — there is no `tools/flash.sh`
+equivalent there, since port discovery is `/dev/serial/by-id/` rather than
+`ioreg` and `stty` takes `-F`.
 
 A board whose firmware predates this still needs the button held at plug-in —
 including the first flash after checking this out.

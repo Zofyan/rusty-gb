@@ -1,9 +1,13 @@
+# One triple per board. `build.rs` reads the same triple back out of `TARGET`
+# to pick the linker script and the `rp2040` / `rp2350` cfg, so `--target` is
+# the only thing that has to be said to select a board:
+#
+#     cargo build --target thumbv8m.main-none-eabihf --profile embedded   # Pico 2
+#     cargo build --target thumbv6m-none-eabi        --profile embedded   # Pico 1 / W / WH
+#
+# `cargo run` swaps in the runner below and flashes over USB.
+
 # The RP2350 (Pico 2) is a Cortex-M33: `thumbv8m.main-none-eabihf`.
-#
-# These flags apply only when that target is selected explicitly:
-#
-#     cargo build --target thumbv8m.main-none-eabihf --profile embedded
-#     cargo run   --target thumbv8m.main-none-eabihf --profile embedded
 [target.thumbv8m.main-none-eabihf]
 runner = "picotool load -u -v -x -t elf"
 rustflags = [
@@ -14,8 +18,20 @@ rustflags = [
     "-C", "link-arg=-Tlink.x",
 ]
 
+# The RP2040 (Pico 1, and the W/WH that share its silicon) is a Cortex-M0+:
+# `thumbv6m-none-eabi`. No FPU and no DSP, so there is no `hf` variant to pick
+# and nothing for `target-cpu` to unlock beyond the baseline -- it is named
+# anyway so the scheduling model matches the part.
+[target.thumbv6m-none-eabi]
+runner = "picotool load -u -v -x -t elf"
+rustflags = [
+    "-C", "target-cpu=cortex-m0plus",
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+]
+
 # There is deliberately no `[build] target` key. Defaulting the whole workspace
 # to the Pico was what forced `dmg` and `dmg-pico` apart in the first place: it
 # makes a bare `cargo build` -- and therefore `cargo test` -- impossible to run,
 # because the test harness needs std. The host is the default so the test suite
-# is always one command away; the Pico is one `--target` away.
+# is always one command away; either Pico is one `--target` away.

@@ -40,7 +40,8 @@ colored = "3.0.0"
 once_cell = "1.19.0"
 peak_alloc = "0.2.0"
 
-# Pico 2 / RP2350 build (`cargo build --target thumbv8m.main-none-eabihf`).
+# Shared by both Pico builds. Everything here is board-agnostic: the HAL is
+# what differs, and it is selected by triple below.
 [target.'cfg(target_os = "none")'.dependencies]
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
@@ -54,12 +55,35 @@ static_cell = "2.1.1"
 embedded-hal-bus = "0.3.0"
 embedded-graphics = "0.8.2"
 embedded-hal = "1.0.0"
-rp235x-hal = { version = "0.3.0", features = ["binary-info", "critical-section-impl", "rt", "defmt"] }
 # USB CDC, so the FPS readout and the Game Boy serial port reach a host
 # terminal over the same cable that powers the board -- no debug probe, which
 # is what reading the defmt/RTT buffer would otherwise require.
 usb-device = "0.3.2"
 usbd-serial = "0.2.2"
+
+# Pico 2 / RP2350 (`cargo build --target thumbv8m.main-none-eabihf`).
+#
+# The triple is quoted because it contains a dot, which is a table separator in
+# TOML: unquoted, this would be `target.thumbv8m.main-none-eabihf` -- three
+# nested tables and no such platform.
+[target."thumbv8m.main-none-eabihf".dependencies]
+rp235x-hal = { version = "0.3.0", features = ["binary-info", "critical-section-impl", "rt", "defmt"] }
+
+# Pico 1 / W / WH -- RP2040 (`cargo build --target thumbv6m-none-eabi`).
+[target.thumbv6m-none-eabi.dependencies]
+# No `binary-info`: nothing in `src/` emits a binary-info entry, and asking for
+# it would mean carrying the matching linker section in `memory/rp2040.x` for
+# an empty table. `rp2040-e5` works around the erratum that otherwise makes USB
+# device enumeration intermittent, which for this board is the only diagnostic
+# channel there is.
+rp2040-hal = { version = "0.12.0", features = ["critical-section-impl", "rt", "defmt", "rp2040-e5"] }
+# The 256-byte second-stage bootloader the RP2040's bootrom expects at the
+# start of flash, checksum included. See `memory/rp2040.x`.
+rp2040-boot2 = "0.3.0"
+# Cortex-M0+ has load/store atomics but no compare-and-swap, so crates that
+# need CAS -- `static_cell` here -- get it from `portable-atomic`, which
+# emulates it with a critical section. This is a no-op on the M33.
+portable-atomic = { version = "1.11.0", default-features = false, features = ["critical-section"] }
 
 # Only the restored cpu.rs unit tests use this, and those are host-only.
 [dev-dependencies]

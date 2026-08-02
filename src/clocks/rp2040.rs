@@ -124,7 +124,36 @@ pub fn init(
         .init_default(&xosc, &pll_sys, &pll_usb)
         .map_err(InitError::ClockError)?;
 
+    peripherals_off_usb_pll(&mut clocks, &pll_usb)?;
+
     Ok(clocks)
+}
+
+/// Repoints `clk_peri` at the USB PLL, so peripherals do not get overclocked
+/// along with the core.
+///
+/// `init_default` wires `clk_peri` to `clk_sys`, which is fine at the stock
+/// clock and is not fine here: at [`SYS_MHZ`] it hands the SPI block a 250 MHz
+/// input, double what the datasheet allows it, and the symptom is a display
+/// that never acknowledges its init sequence rather than an error. Nothing on
+/// this board wants `clk_peri` to track the core -- the SPI baud rate is
+/// requested in Hz and the driver divides down to it either way -- so pointing
+/// it at the 48 MHz USB PLL, which is already running and which [`SYS_MHZ`]
+/// does not move, decouples every peripheral from the overclock for good.
+///
+/// 48 MHz is not a constraint worth worrying about: the SSP divides it by at
+/// least 2, so it still offers 24 MHz of SPI against the 4 MHz the panel is
+/// driven at.
+fn peripherals_off_usb_pll(
+    clocks: &mut ClocksManager,
+    pll_usb: &hal::pll::PhaseLockedLoop<hal::pll::Locked, pac::PLL_USB>,
+) -> Result<(), InitError> {
+    use hal::clocks::{Clock as _, ClockSource as _};
+
+    clocks
+        .peripheral_clock
+        .configure_clock(pll_usb, pll_usb.get_freq())
+        .map_err(InitError::ClockError)
 }
 
 /// Steps the core regulator up to [`OVERCLOCK_VSEL`] and waits for it to settle.

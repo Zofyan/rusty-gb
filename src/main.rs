@@ -144,6 +144,19 @@ mod pico {
         #[cfg(rp2040)]
         let timer = hal::Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
 
+        // Claimed before USB, and that order is load-bearing on the RP2040.
+        //
+        // `Pins::new` is what brings IO_BANK0 and PADS_BANK0 out of reset, and
+        // the RP2040-E5 workaround inside `UsbBus::new` asserts that they
+        // already are: it drives DP through GPIO15's pad to hold a line-state J
+        // that the USB PHY cannot be made to hold on its own, so a bank still
+        // in reset would leave it silently doing nothing. The assert fires
+        // first instead -- and under `panic-halt` that is an indistinguishable
+        // hang, with no USB to report it over and no core 1 to light the
+        // screen. Nothing here needs USB, so the cheap fix is to go first.
+        let sio = hal::Sio::new(pac.SIO);
+        let pins = hal::gpio::Pins::new(pac.IO_BANK0, pac.PADS_BANK0, sio.gpio_bank0, &mut pac.RESETS);
+
         // Diagnostics go out over USB CDC rather than defmt/RTT, so that
         // reading them needs no debug probe. From here the stack services
         // itself off USBCTRL_IRQ.
@@ -173,8 +186,6 @@ mod pico {
             board,
             clocks.system_clock.freq().to_MHz()
                 );
-        let sio = hal::Sio::new(pac.SIO);
-        let pins = hal::gpio::Pins::new(pac.IO_BANK0, pac.PADS_BANK0, sio.gpio_bank0, &mut pac.RESETS);
 
         let sclk = pins.gpio2.into_function::<FunctionSpi>();
         let mosi = pins.gpio3.into_function::<FunctionSpi>();

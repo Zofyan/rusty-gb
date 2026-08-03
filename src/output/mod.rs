@@ -11,6 +11,8 @@ pub mod lcd;
 pub mod terminal;
 
 #[cfg(target_os = "none")]
+mod panel;
+#[cfg(target_os = "none")]
 pub mod spi;
 
 use alloc::string::String;

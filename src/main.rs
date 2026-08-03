@@ -206,8 +206,8 @@ mod pico {
         ).init(
             &mut pac.RESETS,
             clocks.peripheral_clock.freq(),
-            4.MHz(),
-            embedded_hal::spi::MODE_3,
+            32.MHz(),
+            embedded_hal::spi::MODE_0,
         );
 
 
